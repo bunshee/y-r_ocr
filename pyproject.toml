@@ -1,0 +1,15 @@
+[project]
+name = "ocr"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=1.45.0",
+    "ipykernel>=7.0.1",
+    "pandas>=2.3.3",
+    "reportlab>=4.4.4",
+    "streamlit>=1.36.0",
+    "pypdf>=4.2.0",
+    "python-docx>=1.1.2",
+]
