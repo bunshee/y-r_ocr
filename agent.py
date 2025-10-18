@@ -8,7 +8,7 @@ from pypdf import PdfReader, PdfWriter
 
 
 class SelfDescribingOCRAgent:
-    def __init__(self, api_key, model_name="gemini-2.5-flash"):
+    def __init__(self, api_key, model_name="gemini-2.5-flash-image"):
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
 
