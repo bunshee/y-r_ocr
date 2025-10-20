@@ -2,15 +2,6 @@
 
 This project is a high-performance Streamlit web application that uses the Google Gemini API to perform intelligent Optical Character Recognition (OCR) on PDF files. It features an optimized extraction pipeline with parallel processing, single-pass extraction, and intelligent validation for superior accuracy and speed.
 
-## ✨ Key Features
-
-- **⚡ 70-80% Faster Processing**: Parallel page processing and optimized API usage
-- **🎯 Improved Accuracy**: Single-pass extraction with validation and confidence scoring
-- **🚀 Smart Extraction**: Automatically identifies document types and extracts structured data
-- **💪 Robust Error Handling**: Retry logic with exponential backoff for reliability
-- **📊 Multi-Format Export**: Download results as CSV, PDF, or DOCX
-- **🔍 Validation**: Built-in confidence scoring and data validation
-
 ## 🚀 Performance Improvements
 
 ### Compared to Previous Version:
