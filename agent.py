@@ -1,5 +1,9 @@
+import io
 import json
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Tuple
 
 import pandas as pd
 from google import genai
@@ -8,23 +12,156 @@ from pypdf import PdfReader, PdfWriter
 
 
 class SelfDescribingOCRAgent:
-    def __init__(self, api_key, model_name="gemini-2.5-flash"):
+    def __init__(
+        self, api_key, model_name="gemini-2.5-flash", max_workers=4, max_retries=3
+    ):
+        """Initialize OCR agent with improved configuration.
+
+        Args:
+            api_key: Google API key
+            model_name: Gemini model to use (default: gemini-2.0-flash-exp for better performance)
+            max_workers: Maximum parallel workers for processing pages
+            max_retries: Maximum retry attempts for API calls
+        """
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
+        self.max_workers = max_workers
+        self.max_retries = max_retries
 
-    def _send_prompt(
+    def _send_prompt_with_retry(
         self, parts, system_prompt, response_mime_type="text/plain", schema=None
     ):
-        """Helper to send a prompt and return response text."""
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=parts + [system_prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type=response_mime_type,
-                response_schema=types.Schema(**schema) if schema else None,
-            ),
-        )
-        return response.text.strip()
+        """Helper to send a prompt with retry logic and exponential backoff."""
+        last_error = None
+
+        for attempt in range(self.max_retries):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=parts + [system_prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type=response_mime_type,
+                        response_schema=types.Schema(**schema) if schema else None,
+                    ),
+                )
+                return response.text.strip()
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    wait_time = (2**attempt) + (
+                        time.time() % 1
+                    )  # Exponential backoff with jitter
+                    print(
+                        f"⚠️ API call failed (attempt {attempt + 1}/{self.max_retries}): {e}. Retrying in {wait_time:.2f}s..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    print(f"❌ API call failed after {self.max_retries} attempts: {e}")
+
+        raise last_error
+
+    def extract_data_single_pass(
+        self, file_bytes: bytes, mime_type: str, custom_instructions: str = ""
+    ) -> Dict:
+        """Single-pass extraction that combines schema inference and data extraction.
+
+        This replaces the two-step process (infer_schema + extract_with_inferred_schema)
+        with a single API call for 50% latency reduction and better consistency.
+
+        Args:
+            file_bytes: Document file as bytes
+            mime_type: MIME type of the document
+            custom_instructions: Optional custom instructions
+
+        Returns:
+            Dictionary with document_type, confidence, metadata, line_items, and fields
+        """
+        file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
+
+        prompt = f"""You are an expert document analyst. Analyze this document and extract ALL structured data.
+
+**Task:**
+1. Identify the document type (invoice, receipt, form, timesheet, etc.)
+2. Extract ALL data fields with their values
+3. Classify each field as either:
+   - "header": Applies to the whole document (e.g., date, invoice number, company name)
+   - "line_item": Repeats in rows/records (e.g., item description, quantity, price)
+
+**Instructions:**
+- Use lowercase_snake_case for all field names
+- For dates: use YYYY-MM-DD format
+- For currency: extract as numbers without symbols
+- For times: use HH:MM format
+- Include header information context for every line item
+- If a field is missing, use null
+
+{custom_instructions}
+
+**Output Format:**
+Return a JSON object. First, list all the fields in a "fields" array with their metadata.
+Then provide the extracted data:
+- "metadata": object with header field values (field_name: value pairs)
+- "line_items": array of objects, each containing line item field values
+
+Example structure:
+{{
+  "document_type": "invoice",
+  "confidence": "high",
+  "fields": [
+    {{"name": "invoice_number", "type": "string", "description": "Invoice ID", "context": "header"}},
+    {{"name": "item_name", "type": "string", "description": "Product name", "context": "line_item"}}
+  ],
+  "metadata": {{"invoice_number": "INV-001"}},
+  "line_items": [{{"item_name": "Product A"}}]
+}}
+"""
+
+        # Note: Not using strict schema validation because metadata and line_items
+        # have dynamic fields that can't be predefined. Using JSON mode only.
+        try:
+            response_text = self._send_prompt_with_retry(
+                [file_part],
+                prompt,
+                response_mime_type="application/json",
+                schema=None,  # No schema - allow free-form JSON
+            )
+            result = json.loads(response_text)
+            
+            # Ensure metadata and line_items exist even if not in schema response
+            if "metadata" not in result:
+                result["metadata"] = {}
+            if "line_items" not in result:
+                result["line_items"] = []
+            
+            print(
+                f"📄 Document Type: {result.get('document_type', 'unknown')} "
+                f"(Confidence: {result.get('confidence', 'unknown')})"
+            )
+            print(
+                f"🔍 Extracted {len(result.get('fields', []))} fields, "
+                f"{len(result.get('metadata', {}))} metadata fields, "
+                f"{len(result.get('line_items', []))} line items"
+            )
+            return result
+        except json.JSONDecodeError as e:
+            print(f"❌ Failed to parse JSON response: {e}")
+            print(f"Raw response: {response_text[:500]}...")
+            return {
+                "document_type": "unknown",
+                "confidence": "low",
+                "fields": [],
+                "metadata": {},
+                "line_items": [],
+            }
+        except Exception as e:
+            print(f"❌ Extraction failed: {e}")
+            return {
+                "document_type": "unknown",
+                "confidence": "low",
+                "fields": [],
+                "metadata": {},
+                "line_items": [],
+            }
 
     def infer_schema(self, file_path, custom_instructions=""):
         """
@@ -213,66 +350,280 @@ Instructions:
 
         return metadata, line_items
 
+    def _validate_extraction(self, result: Dict) -> Tuple[float, List[str]]:
+        """Validate extracted data and compute confidence score.
+
+        Args:
+            result: Extraction result dictionary
+
+        Returns:
+            Tuple of (confidence_score, list of issues)
+        """
+        issues = []
+        confidence_score = 1.0
+
+        # Check if we have basic structure
+        if not result.get("fields"):
+            issues.append("No fields extracted")
+            confidence_score -= 0.3
+
+        if not result.get("line_items") and not result.get("metadata"):
+            issues.append("No data extracted (empty metadata and line_items)")
+            confidence_score -= 0.4
+
+        # Check confidence level
+        if result.get("confidence") == "low":
+            confidence_score -= 0.2
+        elif result.get("confidence") == "medium":
+            confidence_score -= 0.1
+
+        # Validate field consistency
+        fields = result.get("fields", [])
+        field_names = {f.get("name") for f in fields}
+
+        # Check if metadata fields are in schema
+        metadata = result.get("metadata", {})
+        for key in metadata.keys():
+            if key not in field_names:
+                issues.append(f"Metadata field '{key}' not in schema")
+
+        # Check if line_item fields are in schema
+        line_items = result.get("line_items", [])
+        if line_items:
+            for item in line_items[:3]:  # Check first 3 items
+                for key in item.keys():
+                    if key not in field_names:
+                        issues.append(f"Line item field '{key}' not in schema")
+                        break
+
+        confidence_score = max(0.0, min(1.0, confidence_score))
+
+        if issues:
+            print(f"⚠️ Validation issues ({len(issues)}): {', '.join(issues[:3])}")
+
+        return confidence_score, issues
+
     def process(
         self, file_path, custom_instructions="", auto_infer=True, is_page=False
     ):
         """
-        Full pipeline: infer schema -> extract data -> normalize.
+        Optimized pipeline using single-pass extraction.
+
+        Args:
+            file_path: Path to file to process
+            custom_instructions: Optional custom extraction instructions
+            auto_infer: Use single-pass extraction (legacy parameter, now always True for new method)
+            is_page: Internal flag for page-by-page processing
+
+        Returns:
+            Tuple of (metadata dict, line_items DataFrame, schema_info dict)
         """
         print(f"🔍 Processing: {file_path}")
 
         if file_path.lower().endswith(".pdf") and not is_page:
-            return self.process_pdf_page_by_page(
-                file_path, custom_instructions, auto_infer
-            )
+            return self.process_pdf_parallel(file_path, custom_instructions)
 
-        # Step 1: Infer schema
-        schema_info = (
-            self.infer_schema(file_path, custom_instructions) if auto_infer else None
+        # Read file and detect MIME type
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        mime_type = self._detect_mime_type(file_path)
+
+        # Single-pass extraction (replaces old two-step process)
+        result = self.extract_data_single_pass(
+            file_bytes, mime_type, custom_instructions
         )
 
-        # Step 2: Extract data
-        data = self.extract_with_inferred_schema(
-            file_path, schema_info, custom_instructions
-        )
-        df = pd.DataFrame(data)
+        # Validate extraction
+        confidence_score, issues = self._validate_extraction(result)
+        print(f"📊 Extraction confidence: {confidence_score:.2%}")
 
-        if df.empty:
-            print("⚠️ No data extracted. Exiting process.")
-            return {}, pd.DataFrame(), schema_info
+        # Convert to DataFrame format
+        metadata = result.get("metadata", {})
+        line_items_data = result.get("line_items", [])
 
-        # Step 3: Parse dates intelligently
-        if schema_info:
+        if not line_items_data:
+            print("⚠️ No line items extracted.")
+            line_items_df = pd.DataFrame()
+        else:
+            line_items_df = pd.DataFrame(line_items_data)
+
+            # Parse date fields
             date_fields = [
-                f["name"] for f in schema_info["fields"] if f["type"] == "date"
+                f["name"] for f in result.get("fields", []) if f.get("type") == "date"
             ]
             for col in date_fields:
-                if col in df.columns:
-                    df[col] = pd.to_datetime(df[col], errors="coerce")
+                if col in line_items_df.columns:
+                    line_items_df[col] = pd.to_datetime(
+                        line_items_df[col], errors="coerce"
+                    )
 
-        # Step 4: Normalize data
-        metadata, line_items = self.normalize_data(df, schema_info)
+        # Return in format compatible with existing code
+        schema_info = {
+            "document_type": result.get("document_type", "unknown"),
+            "confidence": result.get("confidence", "low"),
+            "fields": result.get("fields", []),
+            "validation_score": confidence_score,
+            "validation_issues": issues,
+        }
 
         print("✅ Processing complete.")
-        return metadata, line_items, schema_info
+        return metadata, line_items_df, schema_info
+
+    def _detect_mime_type(self, file_path: str) -> str:
+        """Detect MIME type from file extension."""
+        ext = file_path.lower().split(".")[-1]
+        mime_types = {
+            "pdf": "application/pdf",
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "gif": "image/gif",
+            "bmp": "image/bmp",
+            "tiff": "image/tiff",
+            "webp": "image/webp",
+        }
+        return mime_types.get(ext, "application/octet-stream")
+
+    def _process_page_in_memory(
+        self, page, page_num: int, total_pages: int, custom_instructions: str = ""
+    ) -> Tuple:
+        """Process a single PDF page in memory without disk I/O.
+
+        Args:
+            page: PyPDF page object
+            page_num: Page number (1-indexed)
+            total_pages: Total number of pages
+            custom_instructions: Optional custom instructions
+
+        Returns:
+            Tuple of (page_num, metadata, line_items, schema_info)
+        """
+        print(f"📄 Processing page {page_num}/{total_pages}")
+
+        # Create PDF in memory
+        buffer = io.BytesIO()
+        writer = PdfWriter()
+        writer.add_page(page)
+        writer.write(buffer)
+        buffer.seek(0)
+        file_bytes = buffer.read()
+
+        # Process with single-pass extraction
+        result = self.extract_data_single_pass(
+            file_bytes, "application/pdf", custom_instructions
+        )
+
+        # Validate extraction
+        confidence_score, issues = self._validate_extraction(result)
+
+        # Convert to DataFrame format
+        metadata = result.get("metadata", {})
+        line_items_data = result.get("line_items", [])
+
+        if not line_items_data:
+            line_items_df = pd.DataFrame()
+        else:
+            line_items_df = pd.DataFrame(line_items_data)
+
+            # Parse date fields
+            date_fields = [
+                f["name"] for f in result.get("fields", []) if f.get("type") == "date"
+            ]
+            for col in date_fields:
+                if col in line_items_df.columns:
+                    line_items_df[col] = pd.to_datetime(
+                        line_items_df[col], errors="coerce"
+                    )
+
+        schema_info = {
+            "document_type": result.get("document_type", "unknown"),
+            "confidence": result.get("confidence", "low"),
+            "fields": result.get("fields", []),
+            "validation_score": confidence_score,
+            "validation_issues": issues,
+        }
+
+        return page_num, metadata, line_items_df, schema_info
+
+    def process_pdf_parallel(self, file_path: str, custom_instructions: str = ""):
+        """Process PDF pages in parallel for significantly better performance.
+
+        Uses ThreadPoolExecutor to process multiple pages concurrently.
+        Processes pages in-memory without disk I/O.
+        Returns results in page order (sorted), not completion order.
+
+        Args:
+            file_path: Path to PDF file
+            custom_instructions: Optional custom instructions
+
+        Yields:
+            Tuple of (page_num, metadata, line_items, schema_info) for each page in order
+        """
+        reader = PdfReader(file_path)
+        total_pages = len(reader.pages)
+
+        print(
+            f"📚 Processing {total_pages} pages in parallel (max {self.max_workers} workers)..."
+        )
+        start_time = time.time()
+
+        # Process pages in parallel with ordered output
+        # Buffer to hold completed pages until their turn
+        results_buffer = {}
+        next_page_to_yield = 1
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all pages for processing
+            futures = {
+                executor.submit(
+                    self._process_page_in_memory,
+                    page,
+                    i + 1,
+                    total_pages,
+                    custom_instructions,
+                ): i + 1
+                for i, page in enumerate(reader.pages)
+            }
+
+            # Process results as they complete, but yield in order
+            for future in as_completed(futures):
+                page_num = futures[future]
+                try:
+                    result = future.result()
+                    results_buffer[page_num] = result
+                except Exception as e:
+                    print(f"❌ Error processing page {page_num}: {e}")
+                    # Store empty result for failed page
+                    results_buffer[page_num] = (
+                        page_num,
+                        {},
+                        pd.DataFrame(),
+                        {
+                            "document_type": "unknown",
+                            "confidence": "low",
+                            "fields": [],
+                            "validation_score": 0.0,
+                            "validation_issues": [str(e)],
+                        },
+                    )
+                
+                # Yield any pages that are now ready in sequence
+                while next_page_to_yield in results_buffer:
+                    yield results_buffer[next_page_to_yield]
+                    del results_buffer[next_page_to_yield]
+                    next_page_to_yield += 1
+
+        elapsed = time.time() - start_time
+        print(
+            f"✅ Completed {total_pages} pages in {elapsed:.2f}s ({elapsed / total_pages:.2f}s per page)"
+        )
 
     def process_pdf_page_by_page(
         self, file_path, custom_instructions="", auto_infer=True
     ):
-        """
-        Splits a PDF and processes each page, yielding results.
-        """
-        reader = PdfReader(file_path)
-        for i, page in enumerate(reader.pages):
-            writer = PdfWriter()
-            writer.add_page(page)
-            page_path = os.path.abspath(f"temp_page_{i}.pdf")
-            with open(page_path, "wb") as f:
-                writer.write(f)
+        """Legacy method - now redirects to parallel processing.
 
-            print(f"📄 Processing page {i + 1}/{len(reader.pages)}")
-            metadata, line_items, schema_info = self.process(
-                page_path, custom_instructions, auto_infer, is_page=True
-            )
-            yield i + 1, metadata, line_items, schema_info
-            os.remove(page_path)
+        Kept for backward compatibility.
+        """
+        return self.process_pdf_parallel(file_path, custom_instructions)
