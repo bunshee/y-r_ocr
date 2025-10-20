@@ -10,3 +10,5 @@ wheels/
 .venv
 *.ipynb
 .env
+OPTIMIZATION_SUMMARY.md
+*.pdf
