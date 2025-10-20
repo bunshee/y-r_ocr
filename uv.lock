@@ -771,13 +771,13 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "google-genai", specifier = ">=1.45.0" },
-    { name = "ipykernel", specifier = ">=7.0.1" },
-    { name = "pandas", specifier = ">=2.3.3" },
-    { name = "pypdf", specifier = ">=4.2.0" },
-    { name = "python-docx", specifier = ">=1.1.2" },
-    { name = "reportlab", specifier = ">=4.4.4" },
-    { name = "streamlit", specifier = ">=1.36.0" },
+    { name = "google-genai", specifier = "==1.45.0" },
+    { name = "ipykernel", specifier = "==7.0.1" },
+    { name = "pandas", specifier = "==2.3.3" },
+    { name = "pypdf", specifier = "==6.1.1" },
+    { name = "python-docx", specifier = "==1.2.0" },
+    { name = "reportlab", specifier = "==4.4.4" },
+    { name = "streamlit", specifier = "==1.50.0" },
 ]
 
 [[package]]

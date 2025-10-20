@@ -2,12 +2,7 @@
 
 This project is a Streamlit web application that uses the Google Gemini API to perform Optical Character Recognition (OCR) on PDF files. It can automatically infer the schema of a document, extract the data, and then normalize it into a structured format. The application allows users to upload a PDF file, and then it displays the extracted data in a table. Finally, the user can download the extracted data as a CSV, PDF, or DOCX file.
 
-## Hosted on streamlit
-[Young & Restless - OCR](https://yandresltess.streamlit.app/)
-you might need to wake up the app 😴
-<img width="799" height="300" alt="image" src="https://github.com/user-attachments/assets/498c0340-f332-4206-9ace-bc942dc9b559" />
-
-## Installation
+## Installation 
 
 ### With `uv` (recommended)
 
