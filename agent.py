@@ -9,7 +9,7 @@ from pypdf import PdfReader, PdfWriter
 
 class SelfDescribingOCRAgent:
     def __init__(self, api_key, model_name="gemini-2.5-flash"):
-        self.client = genai.Client(api_key="AIzaSyCbDqaSdbdehY9XBYbdEJ6mpUlMGuRVhYc")
+        self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
 
     def _send_prompt(
