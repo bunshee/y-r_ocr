@@ -144,11 +144,11 @@ def dataframes_to_docx(tables_with_pages, display_date=None):
 def dataframes_to_xlsx(tables_with_pages, display_date=None):
     """Converts a list of (page_num, DataFrame) tuples to an XLSX file."""
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         if display_date:
             # Add a summary sheet or a note about the date if needed
             summary_df = pd.DataFrame([{"Report Date": display_date}])
-            summary_df.to_excel(writer, sheet_name='Report Summary', index=False)
+            summary_df.to_excel(writer, sheet_name="Report Summary", index=False)
 
         for page_num, df in tables_with_pages:
             # Ensure sheet name is valid (max 31 chars, no invalid chars)
@@ -223,7 +223,7 @@ if uploaded_file is not None and api_key:
                     st.image(
                         corrected_image_bytes,
                         caption=f"Rotated Image for Page {page_num}",
-                        width='stretch',
+                        width="stretch",
                     )
                 try:
                     edited_df = st.data_editor(line_items, key=f"editor_{page_num}")
@@ -231,7 +231,9 @@ if uploaded_file is not None and api_key:
                     st.warning(
                         f"Could not display dataframe directly, converting to string: {e}"
                     )
-                    edited_df = st.data_editor(line_items.astype(str), key=f"editor_{page_num}")
+                    edited_df = st.data_editor(
+                        line_items.astype(str), key=f"editor_{page_num}"
+                    )
 
                 line_items_cleaned = edited_df.dropna(axis=1, how="all")
                 if not line_items_cleaned.empty:

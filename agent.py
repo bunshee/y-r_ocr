@@ -1,12 +1,12 @@
 import io
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple
 
 import pandas as pd
 import pytesseract
-import re
 from google import genai
 from google.genai import types
 from pdf2image import convert_from_bytes  # REQUIRES external poppler utility
@@ -46,7 +46,7 @@ class SelfDescribingOCRAgent:
 
             # Step 2: Detect Rotation using Pytesseract OSD
             osd_data = pytesseract.image_to_osd(img)
-            angle_match = re.search(r'(?<=Rotate: )\d+', osd_data)
+            angle_match = re.search(r"(?<=Rotate: )\d+", osd_data)
             angle_to_rotate = int(angle_match.group(0)) if angle_match else 0
 
             if angle_to_rotate != 0:
@@ -137,6 +137,7 @@ class SelfDescribingOCRAgent:
 - Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
 - Missing/Blank Data: Use `null`.
 - Column names must be the same as the header names, the ones directly above the table.
+- Vertical lines or arrows inside columns mean that the value is repeated in the column. 
 
 {custom_instructions}
 
