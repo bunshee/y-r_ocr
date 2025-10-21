@@ -5,7 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple
 
 import pandas as pd
-import tesserocr
+import pytesseract
+import re
 from google import genai
 from google.genai import types
 from pdf2image import convert_from_bytes  # REQUIRES external poppler utility
@@ -43,12 +44,10 @@ class SelfDescribingOCRAgent:
             )
             img = images[0]
 
-            # Step 2: Detect Rotation using Tesserocr OSD
-            with tesserocr.PyTessBaseAPI() as api:
-                api.SetImage(img)
-                api.Recognize()
-                osd = api.GetOrientationAndScript()
-                angle_to_rotate = osd["orientation"]
+            # Step 2: Detect Rotation using Pytesseract OSD
+            osd_data = pytesseract.image_to_osd(img)
+            angle_match = re.search(r'(?<=Rotate: )\d+', osd_data)
+            angle_to_rotate = int(angle_match.group(0)) if angle_match else 0
 
             if angle_to_rotate != 0:
                 print(
