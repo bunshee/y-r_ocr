@@ -366,7 +366,7 @@ Example structure:
             "validation_issues": issues,
         }
 
-        return page_num, metadata, line_items_df, schema_info
+        return page_num, metadata, line_items_df, schema_info, corrected_bytes
 
     def process_pdf_parallel(self, file_path: str, custom_instructions: str = ""):
         """Process PDF pages in parallel for significantly better performance."""
@@ -411,6 +411,7 @@ Example structure:
                             "validation_score": 0.0,
                             "validation_issues": [str(e)],
                         },
+                        None,
                     )
 
                 while next_page_to_yield in results_buffer:

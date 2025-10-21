@@ -141,20 +141,32 @@ def dataframes_to_docx(tables_with_pages, display_date=None):
     return buffer
 
 
+def dataframes_to_xlsx(tables_with_pages, display_date=None):
+    """Converts a list of (page_num, DataFrame) tuples to an XLSX file."""
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        if display_date:
+            # Add a summary sheet or a note about the date if needed
+            summary_df = pd.DataFrame([{"Report Date": display_date}])
+            summary_df.to_excel(writer, sheet_name='Report Summary', index=False)
+
+        for page_num, df in tables_with_pages:
+            # Ensure sheet name is valid (max 31 chars, no invalid chars)
+            sheet_name = f"Page {page_num}"
+            if len(sheet_name) > 31:
+                sheet_name = sheet_name[:31]
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+    buffer.seek(0)
+    return buffer
+
+
 def create_zip_archive(tables_with_pages, date_to_display):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        # Generate CSV
-        all_cleaned_line_items = pd.DataFrame()
-        for _, df in tables_with_pages:
-            all_cleaned_line_items = pd.concat(
-                [all_cleaned_line_items, df], ignore_index=True
-            )
-        if not all_cleaned_line_items.empty:
-            csv_buffer = io.BytesIO()
-            csv_buffer.write(all_cleaned_line_items.to_csv(index=False).encode("utf-8"))
-            csv_buffer.seek(0)
-            zip_file.writestr("extracted_tables.csv", csv_buffer.read())
+        # Generate XLSX
+        if tables_with_pages:
+            xlsx_buffer = dataframes_to_xlsx(tables_with_pages, date_to_display)
+            zip_file.writestr("extracted_tables.xlsx", xlsx_buffer.read())
 
         # Generate PDF
         if tables_with_pages:
@@ -195,7 +207,9 @@ if uploaded_file is not None and api_key:
             # Run the full pipeline
             results = agent.process(temp_pdf_path)
 
-            for page_num, _, line_items, _ in results:
+            edited_tables_with_pages = []
+
+            for page_num, _, line_items, _, corrected_image_bytes in results:
                 if not isinstance(line_items, pd.DataFrame):
                     st.warning(
                         f"line_items is not a DataFrame for page {page_num}. Type: {type(line_items)}"
@@ -205,17 +219,23 @@ if uploaded_file is not None and api_key:
                     )  # Convert to empty DataFrame to prevent further errors
 
                 st.subheader(f"Page {page_num}")
+                if corrected_image_bytes:
+                    st.image(
+                        corrected_image_bytes,
+                        caption=f"Rotated Image for Page {page_num}",
+                        width='stretch',
+                    )
                 try:
-                    st.dataframe(line_items)
+                    edited_df = st.data_editor(line_items, key=f"editor_{page_num}")
                 except Exception as e:
                     st.warning(
                         f"Could not display dataframe directly, converting to string: {e}"
                     )
-                    st.dataframe(line_items.astype(str))
+                    edited_df = st.data_editor(line_items.astype(str), key=f"editor_{page_num}")
 
-                line_items_cleaned = line_items.dropna(axis=1, how="all")
+                line_items_cleaned = edited_df.dropna(axis=1, how="all")
                 if not line_items_cleaned.empty:
-                    tables_with_pages.append((page_num, line_items_cleaned))
+                    edited_tables_with_pages.append((page_num, line_items_cleaned))
 
                 if date_to_display is None:
                     for col in line_items.columns:
@@ -237,8 +257,8 @@ if uploaded_file is not None and api_key:
             st.error(f"An error occurred: {e}")
 
     # Render download buttons outside the try block, but only if processing was successful
-    if processing_successful and tables_with_pages:
-        zip_file_buffer = create_zip_archive(tables_with_pages, date_to_display)
+    if processing_successful and edited_tables_with_pages:
+        zip_file_buffer = create_zip_archive(edited_tables_with_pages, date_to_display)
         st.download_button(
             label="Download All Results (ZIP)",
             data=zip_file_buffer,
