@@ -222,15 +222,27 @@ if uploaded_file is not None and api_key:
                 if not isinstance(line_items, pd.DataFrame):
                     line_items = pd.DataFrame()
 
+                # Function to clean non-alphanumeric values
+                def clean_cell(value):
+                    if pd.isna(value) or value == "":
+                        return value
+                    str_val = str(value).strip()
+                    # If the string is empty after stripping or contains no alphanumeric characters
+                    if not str_val or not any(c.isalnum() for c in str_val):
+                        return None
+                    return value
+
+                # Apply cleaning to all cells
+                line_items_cleaned = line_items.applymap(clean_cell)
+
                 # Remove all-null columns and rows first
-                line_items_cleaned = line_items.dropna(axis=1, how="all")
+                line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
                 line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
 
                 # Only proceed if there's data after cleaning
                 if not line_items_cleaned.empty:
                     # Fill NaN values with the value from the cell above
                     line_items_cleaned = line_items_cleaned.ffill()
-
                 st.subheader(f"Page {page_num}")
                 if corrected_image_bytes:
                     st.image(
