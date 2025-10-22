@@ -221,11 +221,16 @@ if uploaded_file is not None and api_key:
                 # Clean the dataframe before displaying
                 if not isinstance(line_items, pd.DataFrame):
                     line_items = pd.DataFrame()
-                
-                # Remove all-null columns and rows
+
+                # Remove all-null columns and rows first
                 line_items_cleaned = line_items.dropna(axis=1, how="all")
                 line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
-                
+
+                # Only proceed if there's data after cleaning
+                if not line_items_cleaned.empty:
+                    # Fill NaN values with the value from the cell above
+                    line_items_cleaned = line_items_cleaned.ffill()
+
                 st.subheader(f"Page {page_num}")
                 if corrected_image_bytes:
                     st.image(
@@ -233,11 +238,13 @@ if uploaded_file is not None and api_key:
                         caption=f"Rotated Image for Page {page_num}",
                         width="stretch",
                     )
-                
+
                 # Only show the editor if there's data to edit
                 if not line_items_cleaned.empty:
                     try:
-                        edited_df = st.data_editor(line_items_cleaned, key=f"editor_{page_num}")
+                        edited_df = st.data_editor(
+                            line_items_cleaned, key=f"editor_{page_num}"
+                        )
                     except Exception as e:
                         st.warning(
                             f"Could not display dataframe directly, converting to string: {e}"
