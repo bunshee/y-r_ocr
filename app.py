@@ -218,6 +218,14 @@ if uploaded_file is not None and api_key:
                         pd.DataFrame()
                     )  # Convert to empty DataFrame to prevent further errors
 
+                # Clean the dataframe before displaying
+                if not isinstance(line_items, pd.DataFrame):
+                    line_items = pd.DataFrame()
+                
+                # Remove all-null columns and rows
+                line_items_cleaned = line_items.dropna(axis=1, how="all")
+                line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
+                
                 st.subheader(f"Page {page_num}")
                 if corrected_image_bytes:
                     st.image(
@@ -225,18 +233,22 @@ if uploaded_file is not None and api_key:
                         caption=f"Rotated Image for Page {page_num}",
                         width="stretch",
                     )
-                try:
-                    edited_df = st.data_editor(line_items, key=f"editor_{page_num}")
-                except Exception as e:
-                    st.warning(
-                        f"Could not display dataframe directly, converting to string: {e}"
-                    )
-                    edited_df = st.data_editor(
-                        line_items.astype(str), key=f"editor_{page_num}"
-                    )
-
-                line_items_cleaned = edited_df.dropna(axis=1, how="all")
-                line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
+                
+                # Only show the editor if there's data to edit
+                if not line_items_cleaned.empty:
+                    try:
+                        edited_df = st.data_editor(line_items_cleaned, key=f"editor_{page_num}")
+                    except Exception as e:
+                        st.warning(
+                            f"Could not display dataframe directly, converting to string: {e}"
+                        )
+                        edited_df = st.data_editor(
+                            line_items_cleaned.astype(str), key=f"editor_{page_num}"
+                        )
+                    line_items_cleaned = edited_df
+                else:
+                    st.info("No data to display for this page.")
+                    continue
                 if not line_items_cleaned.empty:
                     edited_tables_with_pages.append((page_num, line_items_cleaned))
 
