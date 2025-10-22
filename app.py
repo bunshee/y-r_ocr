@@ -233,7 +233,7 @@ if uploaded_file is not None and api_key:
                     return value
 
                 # Apply cleaning to all cells
-                line_items_cleaned = line_items.applymap(clean_cell)
+                line_items_cleaned = line_items.map(clean_cell)
 
                 # Remove all-null columns and rows first
                 line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
