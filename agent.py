@@ -137,7 +137,6 @@ class SelfDescribingOCRAgent:
 - Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
 - Missing/Blank Data: Use `null`.
 - Column names must be the same as the header names, the ones directly above the table.
-- Vertical lines/arrows inside columns mean that the value is not null but it must be set as the previous one like time. 
 
 {custom_instructions}
 
