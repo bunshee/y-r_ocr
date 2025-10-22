@@ -222,37 +222,29 @@ if uploaded_file is not None and api_key:
                 if not isinstance(line_items, pd.DataFrame):
                     line_items = pd.DataFrame()
 
-                # Function to clean non-alphanumeric values
+                # Function to clean cell values more leniently
                 def clean_cell(value):
-                    if pd.isna(value) or value == "":
-                        return value
-                    str_val = str(value).strip()
-                    # If the string is empty after stripping or contains no alphanumeric characters
-                    if not str_val or not any(c.isalnum() for c in str_val):
+                    if pd.isna(value) or value == "" or value is None:
                         return None
-                    return value
+                    str_val = str(value).strip()
+                    # Only return None for truly empty strings after stripping
+                    return str_val if str_val else None
 
                 # Apply cleaning to all cells
                 line_items_cleaned = line_items.map(clean_cell)
 
-                # Remove all-null columns and rows first
+                # Remove only completely empty columns (all values are None or empty strings)
                 line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
-                line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
 
-                # Only proceed if there's data after cleaning
-                if not line_items_cleaned.empty:
-                    # Fill NaN values with the value from the cell above
-                    line_items_cleaned = line_items_cleaned.ffill()
-                st.subheader(f"Page {page_num}")
-                if corrected_image_bytes:
-                    st.image(
-                        corrected_image_bytes,
-                        caption=f"Rotated Image for Page {page_num}",
-                        width="stretch",
-                    )
+                # Don't drop rows automatically - even a single non-empty cell is worth keeping
+                # Instead, we'll fill empty cells with empty strings for display
+                line_items_cleaned = line_items_cleaned.fillna("")
 
                 # Only show the editor if there's data to edit
-                if not line_items_cleaned.empty:
+                if (
+                    not line_items_cleaned.empty
+                    and not line_items_cleaned.dropna(how="all").empty
+                ):
                     try:
                         edited_df = st.data_editor(
                             line_items_cleaned, key=f"editor_{page_num}"
