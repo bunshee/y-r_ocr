@@ -2,6 +2,7 @@ import io
 import os
 import zipfile
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from docx import Document
@@ -182,11 +183,34 @@ def create_zip_archive(tables_with_pages, date_to_display):
     return zip_buffer
 
 
+triggers = {"✔", "checked", "check"}
+
+
+def conditional_ffill(df):
+    df = df.replace("", np.nan)  # treat empty strings as NaN
+    for col in df.columns:
+        last_valid = None
+        new_values = []
+        for val in df[col]:
+            if pd.isna(val):
+                new_values.append(last_valid)  # forward-fill
+            elif str(val).strip().lower() in triggers:
+                new_values.append(
+                    last_valid
+                )  # replace trigger cell with previous value
+            else:
+                last_valid = val
+                new_values.append(val)
+        df[col] = new_values
+    return df
+
+
 # Get API key from user
 api_key = st.text_input("Enter your Google API Key:", type="password")
 
 # File uploader
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
+
 
 # Initialize variables outside the try block
 tables_with_pages = []
@@ -243,7 +267,7 @@ if uploaded_file is not None and api_key:
                 line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
                 line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
                 line_items_cleaned = line_items_cleaned.replace("✔", None)
-                # line_items_cleaned = line_items_cleaned.fillna(method="ffill")
+                line_items_cleaned = conditional_ffill(line_items_cleaned)
                 line_items_cleaned = line_items_cleaned.fillna("")
                 if (
                     not line_items_cleaned.empty
