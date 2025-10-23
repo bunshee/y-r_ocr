@@ -135,7 +135,7 @@ class SelfDescribingOCRAgent:
 - Times: Use **HH:MM** format (e.g., 07:30).
 - Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
 - Missing/Blank Data: Use `null`.
-- Drawings or lines: Use `null`.
+- Checks or straight lines: Use `null`.
 
 {custom_instructions}
 
