@@ -128,8 +128,6 @@ class SelfDescribingOCRAgent:
 3. Classify each field as either "header" (document-wide) or "line_item" (repeats in rows).
 4. For every extracted record in "line_items", ensure **all cell values are captured**, even if they are sparse, empty, or redundant.
 5. If the document contains **multiple, distinct tables** on this page, the "line_items" array must contain the union of **all records** from all tables.
-6. The "metadata" object should contain only the document-level header fields.
-7. Make sure to give columns the same name as the header names, the ones directly above the table.
 
 **Field Extraction Instructions:**
 - Field Names: Get accurate field names from the header names, the ones directly above the table.
