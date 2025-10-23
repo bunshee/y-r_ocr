@@ -144,7 +144,6 @@ class SelfDescribingOCRAgent:
 **Output Format:**
 Return a JSON object. First, list all the fields in a "fields" array with their metadata.
 Then provide the extracted data:
-- "metadata": object with header field values (field_name: value pairs)
 - "line_items": array of objects, each containing line item field values
 
 Example structure:
@@ -152,9 +151,9 @@ Example structure:
   "document_type": "timesheet",
   "confidence": "high",
   "fields": [
-    {{"name": "work_order_id", "type": "string", "description": "WO Number", "context": "header"}},
-    {{"name": "employee_name", "type": "string", "description": "Worker Name", "context": "line_item"}},
-    {{"name": "time_in", "type": "time", "description": "Shift start time", "context": "line_item"}}
+    {{"name": "work_order_id", "type": "string", "context": "header"}},
+    {{"name": "employee_name", "type": "string", "context": "line_item"}},
+    {{"name": "time_in", "type": "time", "context": "line_item"}}
   ],
 }}
 """
