@@ -136,6 +136,9 @@ class SelfDescribingOCRAgent:
 - Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
 - Missing/Blank Data: Use `null`.
 
+**Special Instructions:**
+- Make sure numbers are correct.
+
 {custom_instructions}
 
 **Output Format:**
