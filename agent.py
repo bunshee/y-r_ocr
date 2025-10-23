@@ -135,7 +135,6 @@ class SelfDescribingOCRAgent:
 - Times: Use **HH:MM** format (e.g., 07:30).
 - Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
 - Missing/Blank Data: Use `null`.
-- Checks or straight lines: Use `null`.
 
 {custom_instructions}
 
@@ -149,9 +148,9 @@ Example structure:
   "document_type": "timesheet",
   "confidence": "high",
   "fields": [
-    {{"name": "work_order_id", "type": "string", "context": "header"}},
-    {{"name": "employee_name", "type": "string", "context": "line_item"}},
-    {{"name": "time_in", "type": "time", "context": "line_item"}}
+    {{"name": "work order id", "type": "string", "context": "header"}},
+    {{"name": "employee name", "type": "string", "context": "line_item"}},
+    {{"name": "time in", "type": "time", "context": "line_item"}}
   ],
 }}
 """
