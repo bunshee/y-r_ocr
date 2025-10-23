@@ -138,6 +138,7 @@ class SelfDescribingOCRAgent:
 
 **Special Instructions:**
 - Make sure numbers are correct.
+- Always include the checkmark (✔) in the table when found.
 
 {custom_instructions}
 
