@@ -132,12 +132,12 @@ class SelfDescribingOCRAgent:
 7. Make sure to give columns the same name as the header names, the ones directly above the table.
 
 **Field Extraction Instructions:**
-- Field Names: Use **lowercase_snake_case** (e.g., employee_name, call_time).
+- Field Names: Get accurate field names from the header names, the ones directly above the table.
 - Dates: Use **YYYY-MM-DD** format.
 - Times: Use **HH:MM** format (e.g., 07:30).
 - Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
 - Missing/Blank Data: Use `null`.
-- Column names must be the same as the header names, the ones directly above the table.
+- Drawings or lines: Use `null`.
 
 {custom_instructions}
 
@@ -156,8 +156,6 @@ Example structure:
     {{"name": "employee_name", "type": "string", "description": "Worker Name", "context": "line_item"}},
     {{"name": "time_in", "type": "time", "description": "Shift start time", "context": "line_item"}}
   ],
-  "metadata": {{"work_order_id": "1184724-1"}},
-  "line_items": [{{"employee_name": "JOHN DOE", "time_in": "07:30"}}]
 }}
 """
         try:

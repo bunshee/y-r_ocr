@@ -230,17 +230,18 @@ if uploaded_file is not None and api_key:
                     # Only return None for truly empty strings after stripping
                     return str_val if str_val else None
 
-                # Apply cleaning to all cells
+                st.subheader(f"Page {page_num}")
+
+                if corrected_image_bytes:
+                    st.image(
+                        corrected_image_bytes,
+                        caption=f"Rotated Image for Page {page_num}",
+                        width="stretch",
+                    )
                 line_items_cleaned = line_items.map(clean_cell)
 
-                # Remove only completely empty columns (all values are None or empty strings)
                 line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
-
-                # Don't drop rows automatically - even a single non-empty cell is worth keeping
-                # Instead, we'll fill empty cells with empty strings for display
                 line_items_cleaned = line_items_cleaned.fillna("")
-
-                # Only show the editor if there's data to edit
                 if (
                     not line_items_cleaned.empty
                     and not line_items_cleaned.dropna(how="all").empty
