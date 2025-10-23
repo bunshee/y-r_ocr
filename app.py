@@ -242,7 +242,6 @@ if uploaded_file is not None and api_key:
 
                 line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
                 line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
-                line_items_cleaned = line_items_cleaned.fillna("")
                 line_items_cleaned = line_items_cleaned.fillna(method="ffill")
                 line_items_cleaned = line_items_cleaned.fillna("")
                 if (
