@@ -139,6 +139,7 @@ class SelfDescribingOCRAgent:
 **Special Instructions:**
 - Make sure numbers are correct.
 - Always include the checkmark (✔) in the table when found.
+- If value is `value1`-`value2`, then the values are in different columns.
 
 {custom_instructions}
 
