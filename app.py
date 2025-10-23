@@ -2,7 +2,7 @@ import io
 import os
 import zipfile
 
-import numpy as np
+import numpy as np  # <-- Import numpy for NaN handling
 import pandas as pd
 import streamlit as st
 from docx import Document
@@ -183,27 +183,55 @@ def create_zip_archive(tables_with_pages, date_to_display):
     return zip_buffer
 
 
-triggers = {"✔", "checked", "check"}
+# ----------------------------------------------------------------------
+# NEW CONDITIONAL FFIILL IMPLEMENTATION
+# ----------------------------------------------------------------------
 
 
 def conditional_ffill(df):
-    df = df.replace("", np.nan)  # treat empty strings as NaN
-    for col in df.columns:
-        last_valid = None
-        new_values = []
-        for val in df[col]:
-            if pd.isna(val):
-                new_values.append(last_valid)  # forward-fill
-            elif str(val).strip().lower() in triggers:
-                new_values.append(
-                    last_valid
-                )  # replace trigger cell with previous value
-            else:
-                last_valid = val
-                new_values.append(val)
-        df[col] = new_values
-    return df
+    """
+    Applies a custom conditional forward-fill to each column of the DataFrame.
 
+    A block of empty strings ("") or marker values ('✔', 'checked', 'check')
+    is forward-filled only if that block is *terminated* by a non-empty, non-marker value.
+    Otherwise, the cells remain empty/NaN.
+
+    The input df is assumed to have been pre-cleaned such that empty cells are already None/NaN.
+    """
+
+    markers = ["✔", "checked", "check"]
+
+    def final_conditional_fill(col):
+        # 1. Standardize: Replace markers with NaN to treat them as fillable gaps
+        # Empty cells are already assumed to be NaN/None from the caller's pre-cleaning steps.
+        col_temp = col.replace(markers, np.nan)
+
+        # 2. Look-Back (ffill): The value to use for filling (the one *before* the block)
+        filled = col_temp.ffill()
+
+        # 3. Look-Ahead (bfill): The value *after* the block (for condition check)
+        next_valid = col_temp.bfill()
+
+        # 4. Conditional Application: Use np.where to apply the logic efficiently
+        final_col = np.where(
+            col_temp.notna(),  # Condition 1: If the original value was valid, keep it.
+            col_temp,
+            np.where(
+                next_valid.notna(),  # Condition 2: If original was NaN: Is there a non-NaN value below it?
+                filled,  # If YES (condition met): Use the ffilled value.
+                np.nan,  # If NO (no valid value below): Keep it as NaN (unfilled).
+            ),
+        )
+
+        # 5. Return the result as a Series. The caller (main loop) handles final fillna("")
+        return pd.Series(final_col, index=col.index)
+
+    # Apply the custom function column-wise
+    # Use .copy() to prevent SettingWithCopyWarning if possible, though .apply() returns a new DF
+    return df.apply(final_conditional_fill, axis=0)
+
+
+# ----------------------------------------------------------------------
 
 # Get API key from user
 api_key = st.text_input("Enter your Google API Key:", type="password")
@@ -262,13 +290,20 @@ if uploaded_file is not None and api_key:
                         caption=f"Rotated Image for Page {page_num}",
                         width="stretch",
                     )
+                # Map converts all empty/None strings to actual None (which pandas treats as NaN)
                 line_items_cleaned = line_items.map(clean_cell)
 
                 line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
                 line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
-                line_items_cleaned = line_items_cleaned.replace("✔", None)
+
+                # --- APPLY THE NEW CONDITIONAL FFILL LOGIC ---
                 line_items_cleaned = conditional_ffill(line_items_cleaned)
+
+                # The final .fillna("") at the end ensures that any cells that
+                # were NOT filled by the conditional logic (i.e., those that failed
+                # the look-ahead check) are explicitly converted back to empty strings.
                 line_items_cleaned = line_items_cleaned.fillna("")
+
                 if (
                     not line_items_cleaned.empty
                     and not line_items_cleaned.dropna(how="all").empty
