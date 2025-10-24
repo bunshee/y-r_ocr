@@ -78,9 +78,6 @@ class SelfDescribingOCRAgent:
             # Fallback to original PDF if anything goes wrong in the image pipeline
             return pdf_page_bytes, "application/pdf"
 
-    # =========================================================================
-    # EXISTING HELPER METHODS (UNCHANGED)
-    # =========================================================================
     def _send_prompt_with_retry(
         self, parts, system_prompt, response_mime_type="text/plain", schema=None
     ):
@@ -93,6 +90,7 @@ class SelfDescribingOCRAgent:
                     model=self.model_name,
                     contents=parts + [system_prompt],
                     config=types.GenerateContentConfig(
+                        temperature=0.0,
                         response_mime_type=response_mime_type,
                         response_schema=types.Schema(**schema) if schema else None,
                     ),
@@ -122,12 +120,10 @@ class SelfDescribingOCRAgent:
         prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
 
 **Extraction Rules:**
-1.  **Identify All Tables:** Scrutinize the entire page to find any and all data organized in a tabular format (rows and columns). This includes data that looks like a table even if it doesn't have explicit grid lines.
-2.  **Combine Tables:** If you find multiple tables, you MUST combine them into a single CSV output.
-    - If tables have identical or similar column headers, merge them vertically.
-    - If tables have different structures, merge them by creating a superset of all columns. Fill in missing values for rows that don't have a particular column.
-3.  **Header Detection:** Accurately identify the column headers from the table.
-4.  **Data Formatting:**
+- Only get the middle table from the document.
+- Do not include other text outside of main table or header tables in the response.
+
+**Data Formatting:**
     - Times: Use **HH:MM** format (e.g., 07:30).
     - Missing/Blank Data: Represent as an empty field in the CSV (e.g., ,,).
 
@@ -163,7 +159,7 @@ class SelfDescribingOCRAgent:
                 "raw_text": response_text,
             }
             return result
-        except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+        except (pd.errors.ParserError, pd.errors.EmptyDataError):
             return {
                 "document_type": "unknown",
                 "confidence": "low",
