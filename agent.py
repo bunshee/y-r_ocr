@@ -150,7 +150,7 @@ class SelfDescribingOCRAgent:
                 response_mime_type="text/plain",
                 schema=None,
             )
-            cleaned_csv = re.sub(r"^(?i)```csv\n|```$", "", response_text).strip()
+            cleaned_csv = re.sub(r"(?i)^```csv\n|```$", "", response_text).strip()
             df = pd.read_csv(io.StringIO(cleaned_csv))
             line_items = df.to_dict(orient="records")
 

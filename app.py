@@ -278,7 +278,7 @@ if uploaded_file is not None and api_key:
                         st.image(
                             table_data["image"],
                             caption=f"Rotated Image for Page {table_data['page_num']}",
-                            use_container_width=True,
+                            width='stretch',
                         )
     
                     # Display the raw text in an expander
