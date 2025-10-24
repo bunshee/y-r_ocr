@@ -18,4 +18,5 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pdf2image>=1.17.0",
     "xlsxwriter>=3.2.9",
+    "groq>=0.33.0",
 ]
