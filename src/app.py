@@ -1,5 +1,5 @@
-import os
 import asyncio
+import os
 import threading
 
 import pandas as pd
@@ -22,33 +22,28 @@ if "validation_results" not in st.session_state:
 
 api_key = st.text_input("Enter your Google API Key:", type="password")
 
-model_name = st.selectbox(
-    "Select Gemini Model:",
-    options=["gemini-2.5-flash-image", "gemini-2.5-flash", "gemini-2.5-pro"],
-    index=0,
-    help="Choose the Gemini model for OCR processing",
-)
 
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
 
 def run_validation_in_background(api_key, model_name, file_key, pages_data):
     """Run async validation in a background thread."""
+
     def run_async():
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             validator = AsyncValidationAgent(api_key, model_name)
             results = loop.run_until_complete(validator.validate_all_pages(pages_data))
-            
+
             st.session_state.validation_results[file_key] = results
             st.session_state.validation_status[file_key] = "completed"
-            
+
             loop.close()
         except Exception as e:
             st.session_state.validation_status[file_key] = f"error: {e}"
-    
+
     thread = threading.Thread(target=run_async, daemon=True)
     thread.start()
 
@@ -73,7 +68,7 @@ if uploaded_file is not None and api_key:
     if not st.session_state.edited_tables[file_key]["processed"]:
         if st.button("Process Document"):
             try:
-                agent = SelfDescribingOCRAgent(api_key=api_key, model_name=model_name)
+                agent = SelfDescribingOCRAgent(api_key=api_key)
                 results_generator, total_pages = agent.process(temp_pdf_path)
 
                 st.write(f"Found {total_pages} pages. Processing...")
@@ -116,12 +111,12 @@ if uploaded_file is not None and api_key:
 
                 st.session_state.edited_tables[file_key]["processed"] = True
                 progress_bar.empty()
-                
+
                 # Start background validation
                 st.session_state.validation_status[file_key] = "running"
                 pages_data = st.session_state.edited_tables[file_key]["tables"]
-                run_validation_in_background(api_key, model_name, file_key, pages_data)
-                
+                run_validation_in_background(api_key, file_key, pages_data)
+
                 st.rerun()
 
             except Exception as e:
@@ -130,35 +125,50 @@ if uploaded_file is not None and api_key:
     else:
         try:
             # Display validation status
-            validation_status = st.session_state.validation_status.get(file_key, "not_started")
-            
+            validation_status = st.session_state.validation_status.get(
+                file_key, "not_started"
+            )
+
             if validation_status == "running":
-                st.info("🔄 Background validation is running... Results will appear automatically when complete.")
+                st.info(
+                    "🔄 Background validation is running... Results will appear automatically when complete."
+                )
                 if st.button("Check Validation Status"):
                     st.rerun()
             elif validation_status == "completed":
-                st.success("✅ Background validation completed! Corrected tables are shown below.")
+                st.success(
+                    "✅ Background validation completed! Corrected tables are shown below."
+                )
             elif validation_status.startswith("error"):
                 st.warning(f"⚠️ Validation encountered an issue: {validation_status}")
-            
+
             # Get validation results if available
             validation_results = st.session_state.validation_results.get(file_key, {})
-            
+
             for table_data in st.session_state.edited_tables[file_key]["tables"]:
-                page_num = table_data['page_num']
+                page_num = table_data["page_num"]
                 st.subheader(f"Page {page_num}")
-                
+
                 # Check if we have validated/corrected data for this page
                 if page_num in validation_results:
                     validation_result = validation_results[page_num]
-                    
-                    if validation_result["status"] == "success" and validation_result["differences"]:
-                        st.info(f"🔍 Arrow rule applied - {len(validation_result['differences'])} corrections made")
-                        
+
+                    if (
+                        validation_result["status"] == "success"
+                        and validation_result["differences"]
+                    ):
+                        st.info(
+                            f"🔍 Arrow rule applied - {len(validation_result['differences'])} corrections made"
+                        )
+
                         with st.expander("View Corrections"):
-                            for diff in validation_result["differences"][:10]:  # Show first 10
-                                st.text(f"Row {diff['row']}, Column '{diff['column']}': '{diff['original']}' → '{diff['corrected']}'")
-                        
+                            for diff in validation_result["differences"][
+                                :10
+                            ]:  # Show first 10
+                                st.text(
+                                    f"Row {diff['row']}, Column '{diff['column']}': '{diff['original']}' → '{diff['corrected']}'"
+                                )
+
                         # Use corrected data
                         table_data["data"] = validation_result["corrected_df"]
 
