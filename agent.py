@@ -18,7 +18,11 @@ from pypdf import PdfReader, PdfWriter
 
 class SelfDescribingOCRAgent:
     def __init__(
-        self, api_key: str, model_name: str = "meta-llama/llama-4-scout-17b-16e-instruct", max_workers: int = 4, max_retries: int = 3
+        self,
+        api_key: str,
+        model_name: str = "meta-llama/llama-4-maverick-17b-128e-instruct",
+        max_workers: int = 4,
+        max_retries: int = 3,
     ):
         """Initialize OCR agent with Groq client."""
         self.client = Groq(api_key=api_key)
@@ -82,9 +86,11 @@ class SelfDescribingOCRAgent:
     ):
         """Helper to send a prompt with retry logic and exponential backoff."""
         last_error = None
-        
+
         # Convert file part to base64 if it's an image
-        if hasattr(file_part, 'file_data') and file_part.file_data.mime_type.startswith('image/'):
+        if hasattr(file_part, "file_data") and file_part.file_data.mime_type.startswith(
+            "image/"
+        ):
             # For Groq, we'll need to handle images differently
             # For now, we'll just use the text prompt
             pass
@@ -95,7 +101,10 @@ class SelfDescribingOCRAgent:
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": "Extract the table data as CSV following the instructions."}
+                        {
+                            "role": "user",
+                            "content": "Extract the table data as CSV following the instructions.",
+                        },
                     ],
                     temperature=0.0,
                     max_tokens=4000,
@@ -104,7 +113,9 @@ class SelfDescribingOCRAgent:
             except Exception as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
-                    wait_time = (2**attempt) + (time.time() % 1)  # Exponential backoff with jitter
+                    wait_time = (2**attempt) + (
+                        time.time() % 1
+                    )  # Exponential backoff with jitter
                     print(
                         f"⚠️ API call failed (attempt {attempt + 1}/{self.max_retries}): {e}. Retrying in {wait_time:.2f}s..."
                     )
@@ -118,10 +129,13 @@ class SelfDescribingOCRAgent:
         self, file_bytes: bytes, mime_type: str, custom_instructions: str = ""
     ) -> Dict:
         """Single-pass extraction with optimized table-specific instructions."""
+
         class FilePart:
             def __init__(self, data, mime_type):
-                self.file_data = type('FileData', (), {'mime_type': mime_type, 'data': data})
-        
+                self.file_data = type(
+                    "FileData", (), {"mime_type": mime_type, "data": data}
+                )
+
         file_part = FilePart(file_bytes, mime_type)
 
         system_prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
@@ -151,9 +165,7 @@ class SelfDescribingOCRAgent:
 """
         try:
             response_text = self._send_prompt_with_retry(
-                file_part,
-                system_prompt,
-                response_mime_type="text/plain"
+                file_part, system_prompt, response_mime_type="text/plain"
             )
             cleaned_csv = re.sub(r"(?i)^```csv\n|```$", "", response_text).strip()
             df = pd.read_csv(io.StringIO(cleaned_csv))
