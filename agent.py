@@ -20,7 +20,7 @@ class SelfDescribingOCRAgent:
     def __init__(
         self,
         api_key: str,
-        model_name: str = "meta-llama/llama-4-maverick-17b-128e-instruct",
+        model_name: str = "llama3-70b-8192",  # UPDATED to a powerful text model
         max_workers: int = 4,
         max_retries: int = 3,
     ):
@@ -31,16 +31,17 @@ class SelfDescribingOCRAgent:
         self.max_retries = max_retries
 
     # =========================================================================
-    # METHOD FOR IMAGE ROTATION CORRECTION (Requires External Dependencies)
+    # METHOD FOR IMAGE ROTATION CORRECTION (MODIFIED)
     # =========================================================================
-    def _detect_and_correct_rotation(self, pdf_page_bytes: bytes) -> Tuple[bytes, str]:
+    def _get_rotated_image(self, pdf_page_bytes: bytes) -> Image.Image:
         """
         Renders PDF page to image, detects visual rotation using Tesseract OSD,
-        corrects it using PIL, and returns the upright image bytes.
+        and returns the upright PIL.Image object.
+
+        Returns the original, un-rotated image if rotation fails.
         """
         try:
-            # Step 1: Render PDF page to PIL Image (Requires pdf2image/poppler)
-            # Render at 200 DPI for a good balance of quality and speed
+            # Step 1: Render PDF page to PIL Image
             images = convert_from_bytes(
                 pdf_page_bytes, first_page=1, last_page=1, dpi=200
             )
@@ -55,10 +56,8 @@ class SelfDescribingOCRAgent:
                 print(
                     f"🔄 Detected visual rotation of {angle_to_rotate}° degrees. Correcting..."
                 )
-
-                # Step 3: Rotate Image using PIL
                 # Tesseract OSD gives the angle needed for CLOCKWISE rotation to be upright.
-                # Use -angle_to_rotate to perform the necessary counter-clockwise (or clockwise) rotation.
+                # Use -angle_to_rotate to perform the necessary rotation.
                 rotated_img = img.rotate(
                     -angle_to_rotate, expand=True, resample=Image.Resampling.BICUBIC
                 )
@@ -66,34 +65,42 @@ class SelfDescribingOCRAgent:
                 rotated_img = img
                 print("✅ No visual rotation detected. Image is upright.")
 
-            # Step 4: Convert final upright Image back to PNG bytes
-            output = io.BytesIO()
-            # Save as PNG as it's a lossless format, ideal for OCR input
-            rotated_img.save(output, format="PNG")
-            output.seek(0)
-
-            return output.getvalue(), "image/png"
+            return rotated_img  # Return the corrected PIL Image
 
         except Exception as e:
             print(
-                f"❌ Image Rotation Correction Failed (Check Poppler/Tesseract dependencies): {e}. Falling back to original PDF bytes."
+                f"❌ Image Rotation Correction Failed (Check Poppler/Tesseract): {e}. Falling back to original render."
             )
-            # Fallback to original PDF if anything goes wrong in the image pipeline
-            return pdf_page_bytes, "application/pdf"
+            # Fallback: just return the original, un-rotated rendered image
+            try:
+                images = convert_from_bytes(
+                    pdf_page_bytes, first_page=1, last_page=1, dpi=200
+                )
+                return images[0]
+            except Exception as e_render:
+                print(f"❌ Basic PDF rendering also failed: {e_render}")
+                # As a last resort, return a blank image
+                return Image.new("RGB", (100, 100), "white")
 
     def _send_prompt_with_retry(
-        self, file_part, system_prompt, response_mime_type="text/plain", schema=None
+        self,
+        raw_ocr_text: str,  # CHANGED: We now send the OCR'd text
+        system_prompt: str,
+        response_mime_type="text/plain",
+        schema=None,
     ):
         """Helper to send a prompt with retry logic and exponential backoff."""
         last_error = None
 
-        # Convert file part to base64 if it's an image
-        if hasattr(file_part, "file_data") and file_part.file_data.mime_type.startswith(
-            "image/"
-        ):
-            # For Groq, we'll need to handle images differently
-            # For now, we'll just use the text prompt
-            pass
+        # NEW: Create the user content based on the OCR text
+        user_content = f"""
+        Here is the raw OCR text from the document page. Please extract the table data 
+        based on the system instructions.
+
+        ---BEGIN OCR TEXT---
+        {raw_ocr_text}
+        ---END OCR TEXT---
+        """
 
         for attempt in range(self.max_retries):
             try:
@@ -103,7 +110,7 @@ class SelfDescribingOCRAgent:
                         {"role": "system", "content": system_prompt},
                         {
                             "role": "user",
-                            "content": "Extract the table data as CSV following the instructions.",
+                            "content": user_content,  # UPDATED: Send the OCR text
                         },
                     ],
                     temperature=0.0,
@@ -126,19 +133,15 @@ class SelfDescribingOCRAgent:
         raise last_error
 
     def extract_data_single_pass(
-        self, file_bytes: bytes, mime_type: str, custom_instructions: str = ""
+        self,
+        raw_ocr_text: str,  # CHANGED: This now takes text, not bytes
+        custom_instructions: str = "",
     ) -> Dict:
         """Single-pass extraction with optimized table-specific instructions."""
 
-        class FilePart:
-            def __init__(self, data, mime_type):
-                self.file_data = type(
-                    "FileData", (), {"mime_type": mime_type, "data": data}
-                )
+        # REMOVED: All the FilePart logic, as we now pass text directly.
 
-        file_part = FilePart(file_bytes, mime_type)
-
-        system_prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
+        system_prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
 
 **Extraction Rules:**
 - Only get the middle table from the document.
@@ -163,9 +166,16 @@ class SelfDescribingOCRAgent:
 - The very first character of your response should be the first character of the CSV header.
 - The very last character of your response should be the last character of the last CSV row.
 """
+
+        # Add custom instructions if provided
+        if custom_instructions:
+            system_prompt = f"{system_prompt}\n\n**Additional Instructions:**\n{custom_instructions}"
+
         try:
             response_text = self._send_prompt_with_retry(
-                file_part, system_prompt, response_mime_type="text/plain"
+                raw_ocr_text,  # PASS THE OCR TEXT
+                system_prompt,
+                response_mime_type="text/plain",
             )
             cleaned_csv = re.sub(r"(?i)^```csv\n|```$", "", response_text).strip()
             df = pd.read_csv(io.StringIO(cleaned_csv))
@@ -177,7 +187,7 @@ class SelfDescribingOCRAgent:
                 "fields": [{"name": col} for col in df.columns],
                 "metadata": {},
                 "line_items": line_items,
-                "raw_text": response_text,
+                "raw_text": response_text,  # This is the LLM's raw CSV output
             }
             return result
         except (pd.errors.ParserError, pd.errors.EmptyDataError):
@@ -187,7 +197,7 @@ class SelfDescribingOCRAgent:
                 "fields": [],
                 "metadata": {},
                 "line_items": [],
-                "raw_text": response_text,
+                "raw_text": response_text,  # Still return the (likely bad) text
             }
         except Exception as e:
             return {
@@ -238,42 +248,49 @@ class SelfDescribingOCRAgent:
             )
             return results_generator, total_pages
 
-        # Non-PDF files are handled here
+        # --- UPDATED: Handle non-PDF image files ---
         with open(file_path, "rb") as f:
             file_bytes = f.read()
 
-        mime_type = self._detect_mime_type(file_path)
+        # NEW: Perform OCR on the image file
+        try:
+            print(f"🤖 Performing OCR on image file: {file_path}")
+            img = Image.open(io.BytesIO(file_bytes))
+            raw_ocr_text = pytesseract.image_to_string(img)
+        except Exception as e_ocr:
+            print(f"❌ OCR failed on image file: {e_ocr}")
+            raw_ocr_text = ""
 
-        # Single-pass extraction
-        result = self.extract_data_single_pass(
-            file_bytes, mime_type, custom_instructions
-        )
+        # Single-pass extraction (passing TEXT)
+        result = self.extract_data_single_pass(raw_ocr_text, custom_instructions)
 
         # For non-PDF, we wrap the single result in a generator and return a total of 1 page
         def single_result_generator():
-            # This part needs to be consistent with the 6-element tuple
             metadata = result.get("metadata", {})
             line_items_data = result.get("line_items", [])
-            raw_text = result.get("raw_text", "")
+            # The `raw_text` from the result is the LLM's CSV.
+            # We will pass the `raw_ocr_text` as the 6th element
+            # so Streamlit can display it.
             line_items_df = pd.DataFrame(line_items_data)
             schema_info = {
                 "document_type": result.get("document_type", "unknown"),
                 "confidence": result.get("confidence", "low"),
                 "fields": result.get("fields", []),
-                "validation_score": 0.0,  # Simplified for non-pdf
+                "validation_score": 0.0,
                 "validation_issues": [],
             }
-            yield 1, metadata, line_items_df, schema_info, file_bytes, raw_text
+            # Return image bytes (for display) and raw_ocr_text (for expander)
+            yield 1, metadata, line_items_df, schema_info, file_bytes, raw_ocr_text
 
         return single_result_generator(), 1
 
     def _process_page_in_memory(
         self, page, page_num: int, total_pages: int, custom_instructions: str = ""
     ) -> Tuple:
-        """Process a single PDF page in memory with image-based rotation correction."""
+        """Process a single PDF page in memory with OCR and LLM extraction."""
         print(f"📄 Processing page {page_num}/{total_pages}")
 
-        # 1. Get initial PDF page bytes for the corrector
+        # 1. Get initial PDF page bytes
         buffer = io.BytesIO()
         writer = PdfWriter()
         writer.add_page(page)
@@ -281,34 +298,45 @@ class SelfDescribingOCRAgent:
         buffer.seek(0)
         pdf_page_bytes = buffer.read()
 
-        # 2. Perform Image Rotation Correction
-        corrected_bytes, file_mime_type = self._detect_and_correct_rotation(
-            pdf_page_bytes
-        )
+        # 2. Perform Image Rotation Correction -> Get PIL Image
+        upright_pil_image = self._get_rotated_image(pdf_page_bytes)
 
-        if file_mime_type == "image/png":
+        # 3. Perform OCR on the upright image
+        print(f"🤖 Performing OCR on page {page_num}...")
+        try:
+            raw_ocr_text = pytesseract.image_to_string(upright_pil_image)
+        except Exception as e_ocr:
+            print(f"❌ OCR failed on page {page_num}: {e_ocr}")
+            raw_ocr_text = ""  # Send empty text to LLM
+
+        # 4. Convert upright image to bytes (for Streamlit display)
+        corrected_image_bytes = None
+        try:
+            img_buffer = io.BytesIO()
+            upright_pil_image.save(img_buffer, format="PNG")
+            corrected_image_bytes = img_buffer.getvalue()
             print(f"🖼️ Page {page_num} successfully converted to upright PNG image.")
-        else:
-            print(f"⚠️ Page {page_num} sent as original PDF (MIME: {file_mime_type}).")
+        except Exception as e_img:
+            print(f"❌ Failed to convert PIL image to bytes: {e_img}")
+            # corrected_image_bytes remains None
 
-        # 3. Add **CRITICAL VISUAL FAILSAFE** instruction
+        # 5. Add **CRITICAL VISUAL FAILSAFE** instruction
         rotation_instruction = (
-            "**VISUAL ROTATION FAILSAFE:** The image rotation step may have failed. If this page's content "
-            "is visually rotated (e.g., 90 or 270 degrees), you **MUST** mentally rotate the image "
-            "to the correct, upright orientation (0 degrees) and extract the data based on that corrected view. "
-            "**DO NOT** output the data rotated or transposed."
+            "**VISUAL ROTATION FAILSAFE:** The user is providing you with raw OCR text from an image. "
+            "This text should be from an upright, 0-degree oriented page, but OCR errors may still be present."
         )
 
-        # 4. Combine instructions
+        # 6. Combine instructions
         page_instructions = (
             f"Page {page_num} of {total_pages}. "
             f"{rotation_instruction} "
             f"{custom_instructions}"
         )
 
-        # Process with single-pass extraction
+        # 7. Process with single-pass extraction (passing TEXT)
         result = self.extract_data_single_pass(
-            corrected_bytes, file_mime_type, page_instructions
+            raw_ocr_text,  # <-- PASS THE OCR TEXT
+            page_instructions,
         )
 
         # Validate extraction
@@ -317,7 +345,6 @@ class SelfDescribingOCRAgent:
         # Convert to DataFrame format
         metadata = result.get("metadata", {})
         line_items_data = result.get("line_items", [])
-        raw_text = result.get("raw_text", "")  # Get raw text
         line_items_df = pd.DataFrame(line_items_data)
 
         schema_info = {
@@ -328,7 +355,16 @@ class SelfDescribingOCRAgent:
             "validation_issues": issues,
         }
 
-        return page_num, metadata, line_items_df, schema_info, corrected_bytes, raw_text
+        # Return the raw_ocr_text as the 6th element
+        # This matches what the Streamlit app expects for the "Raw Extracted Text" expander
+        return (
+            page_num,
+            metadata,
+            line_items_df,
+            schema_info,
+            corrected_image_bytes,
+            raw_ocr_text,
+        )
 
     def process_pdf_parallel(
         self, reader: PdfReader, total_pages: int, custom_instructions: str = ""
@@ -373,7 +409,7 @@ class SelfDescribingOCRAgent:
                             "validation_issues": [str(e)],
                         },
                         None,
-                        f"Error processing page: {e}",
+                        f"Error processing page: {e}",  # Return the error as the raw text
                     )
 
                 while next_page_to_yield in results_buffer:
