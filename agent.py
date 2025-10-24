@@ -141,53 +141,69 @@ CRITICAL: Only return a DataFrame with all the data as csv.
                 response_mime_type="text/plain",
                 schema=None,
             )
-            # The response is now a CSV string.
-            # Let's try to clean it up, as model might add backticks or "csv" label.
-            cleaned_csv = re.sub(r"^(?i)```csv```$", "", response_text).strip()
 
-            # Use pandas to read the csv.
-            df = pd.read_csv(io.StringIO(cleaned_csv))
+            # Clean up the response text
+            cleaned_text = response_text.strip()
+
+            # Remove markdown code block markers if present
+            if cleaned_text.startswith("```") and "\n" in cleaned_text:
+                # Remove the first and last lines (the code block markers)
+                cleaned_text = "\n".join(cleaned_text.split("\n")[1:-1])
+
+            # Clean up any remaining backticks
+            cleaned_text = cleaned_text.replace("```", "").strip()
+
+            # Debug output
+            print(
+                f"Cleaned CSV text:\n{cleaned_text[:500]}..."
+            )  # Print first 500 chars for debugging
+
+            # Try to read as CSV
+            try:
+                df = pd.read_csv(
+                    io.StringIO(cleaned_text), dtype=str, keep_default_na=False
+                )
+
+                # Ensure we have a valid DataFrame with columns
+                if df.empty or len(df.columns) == 0:
+                    raise ValueError("Empty or invalid CSV data")
+
+                # Convert empty strings to None for consistency
+                df = df.replace("", None)
+
+            except pd.errors.EmptyDataError:
+                print("Warning: Empty CSV data received")
+                df = pd.DataFrame(columns=["Error"])
+                df.loc[0] = ["No table data could be extracted from this page"]
 
             # Convert dataframe to list of dicts for line_items
             line_items = df.to_dict(orient="records")
 
-            # The other information is no longer available from the prompt.
-            # I will have to return default/empty values for them.
+            # Create the result structure
             result = {
-                "document_type": "unknown",
-                "confidence": "medium",  # Let's assume medium confidence if we get a dataframe
-                "fields": [{"name": col} for col in df.columns],  # generate from df
+                "document_type": "timesheet",  # Default document type
+                "confidence": "high" if not df.empty else "low",
+                "fields": [{"name": str(col)} for col in df.columns],
                 "metadata": {},
                 "line_items": line_items,
+                "raw_data": df,  # Include the raw DataFrame for debugging
             }
 
             print(
-                f"📄 Document Type: {result.get('document_type', 'unknown')} "
-                f"(Confidence: {result.get('confidence', 'unknown')})"
-            )
-            print(
-                f"🔍 Extracted {len(result.get('fields', []))} fields, "
-                f"{len(result.get('metadata', {}))} metadata fields, "
-                f"{len(result.get('line_items', []))} line items"
+                f"📄 Extracted {len(result.get('fields', []))} fields, "
+                f"{len(result.get('line_items', []))} rows"
             )
             return result
-        except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
-            print(f"❌ Failed to parse CSV response: {e}")
-            return {
-                "document_type": "unknown",
-                "confidence": "low",
-                "fields": [],
-                "metadata": {},
-                "line_items": [],
-            }
+
         except Exception as e:
-            print(f"❌ Extraction failed: {e}")
+            print(f"❌ Extraction failed: {str(e)}")
             return {
                 "document_type": "unknown",
                 "confidence": "low",
                 "fields": [],
                 "metadata": {},
                 "line_items": [],
+                "error": str(e),
             }
 
     def _detect_mime_type(self, file_path: str) -> str:
@@ -204,48 +220,6 @@ CRITICAL: Only return a DataFrame with all the data as csv.
             "webp": "image/webp",
         }
         return mime_types.get(ext, "application/octet-stream")
-
-    def _validate_extraction(self, result: Dict) -> Tuple[float, List[str]]:
-        """Validate extracted data and compute confidence score."""
-        issues = []
-        confidence_score = 1.0
-        # ... (Validation logic remains the same for consistency) ...
-
-        # Check if we have basic structure
-        if not result.get("fields"):
-            issues.append("No fields extracted")
-            confidence_score -= 0.3
-
-        if not result.get("line_items") and not result.get("metadata"):
-            issues.append("No data extracted (empty metadata and line_items)")
-            confidence_score -= 0.4
-
-        # Check confidence level
-        if result.get("confidence") == "low":
-            confidence_score -= 0.2
-        elif result.get("confidence") == "medium":
-            confidence_score -= 0.1
-
-        # Validate field consistency (simplified check)
-        fields = result.get("fields", [])
-        field_names = {f.get("name") for f in fields}
-
-        # Check if line_item fields are in schema
-        line_items = result.get("line_items", [])
-        if line_items:
-            # Check the intersection of fields between schema and first record
-            first_item_keys = set(line_items[0].keys())
-            if not field_names.issuperset(first_item_keys):
-                issues.append(
-                    f"Line item keys ({list(first_item_keys - field_names)[:2]}...) not fully defined in schema."
-                )
-
-        confidence_score = max(0.0, min(1.0, confidence_score))
-
-        if issues:
-            print(f"⚠️ Validation issues ({len(issues)}): {', '.join(issues[:3])}")
-
-        return confidence_score, issues
 
     def process(self, file_path, custom_instructions: str = ""):
         """
@@ -416,3 +390,45 @@ CRITICAL: Only return a DataFrame with all the data as csv.
     ):
         """Legacy method retained for compatibility, redirects to parallel processing."""
         return self.process_pdf_parallel(file_path, custom_instructions)
+
+    def _validate_extraction(self, result: Dict) -> Tuple[float, List[str]]:
+        """Validate extracted data and compute confidence score."""
+        issues = []
+        confidence_score = 1.0
+        # ... (Validation logic remains the same for consistency) ...
+
+        # Check if we have basic structure
+        if not result.get("fields"):
+            issues.append("No fields extracted")
+            confidence_score -= 0.3
+
+        if not result.get("line_items") and not result.get("metadata"):
+            issues.append("No data extracted (empty metadata and line_items)")
+            confidence_score -= 0.4
+
+        # Check confidence level
+        if result.get("confidence") == "low":
+            confidence_score -= 0.2
+        elif result.get("confidence") == "medium":
+            confidence_score -= 0.1
+
+        # Validate field consistency (simplified check)
+        fields = result.get("fields", [])
+        field_names = {f.get("name") for f in fields}
+
+        # Check if line_item fields are in schema
+        line_items = result.get("line_items", [])
+        if line_items:
+            # Check the intersection of fields between schema and first record
+            first_item_keys = set(line_items[0].keys())
+            if not field_names.issuperset(first_item_keys):
+                issues.append(
+                    f"Line item keys ({list(first_item_keys - field_names)[:2]}...) not fully defined in schema."
+                )
+
+        confidence_score = max(0.0, min(1.0, confidence_score))
+
+        if issues:
+            print(f"⚠️ Validation issues ({len(issues)}): {', '.join(issues[:3])}")
+
+        return confidence_score, issues
