@@ -120,44 +120,20 @@ class SelfDescribingOCRAgent:
         """Single-pass extraction with optimized table-specific instructions."""
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
-        prompt = f"""You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Analyze this document and extract ALL structured data.
-
-**Task:**
-1. Identify the document type (invoice, receipt, form, timesheet, etc.)
-2. Extract ALL data fields with their values, prioritizing **complete table capture**.
-3. Classify each field as either "header" (document-wide) or "line_item" (repeats in rows).
-4. For every extracted record in "line_items", ensure **all cell values are captured**, even if they are sparse, empty, or redundant.
-5. If the document contains **multiple, distinct tables** on this page, the "line_items" array must contain the union of **all records** from all tables.
+        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Analyze this document and extract ALL structured data.
 
 **Field Extraction Instructions:**
 - Field Names: Get accurate field names from the header names, the ones directly above the table.
-- Dates: Use **YYYY-MM-DD** format.
 - Times: Use **HH:MM** format (e.g., 07:30).
-- Numeric values: Extract as numbers **without currency symbols** (e.g., 12.25).
-- Missing/Blank Data: Use `null`.
+- Missing/Blank Data: Empty string.
 
 **Special Instructions:**
 - Make sure numbers are correct.
-- Always include the checkmark (✔) in the table when found.
-- If value is `value1`-`value2`, then the values are in different columns.
-
-{custom_instructions}
+- Vertical arrows / lines mean value must be duplicated from the top of the arrow to its end.
+- If value is `value1`-`value2`, then the values are in different columns. 
 
 **Output Format:**
-Return a JSON object. First, list all the fields in a "fields" array with their metadata.
-Then provide the extracted data:
-- "line_items": array of objects, each containing line item field values
-
-Example structure:
-{{
-  "document_type": "timesheet",
-  "confidence": "high",
-  "fields": [
-    {{"name": "work order id", "type": "string", "context": "header"}},
-    {{"name": "employee name", "type": "string", "context": "line_item"}},
-    {{"name": "time in", "type": "time", "context": "line_item"}}
-  ],
-}}
+Return a DataFrame with all the data as csv.
 """
         try:
             response_text = self._send_prompt_with_retry(

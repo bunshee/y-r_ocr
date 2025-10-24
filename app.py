@@ -233,124 +233,132 @@ def conditional_ffill(df):
 
 # ----------------------------------------------------------------------
 
+# Initialize session state for edited tables if it doesn't exist
+if "edited_tables" not in st.session_state:
+    st.session_state.edited_tables = {}
+
 # Get API key from user
 api_key = st.text_input("Enter your Google API Key:", type="password")
 
 # File uploader
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
-
-# Initialize variables outside the try block
-tables_with_pages = []
-date_to_display = None
+# Initialize variables
 processing_successful = False
+date_to_display = None
 
 if uploaded_file is not None and api_key:
+    # Create a unique key for this file upload
+    file_key = f"file_{hash(uploaded_file.getvalue())}"
+
+    if file_key not in st.session_state.edited_tables:
+        st.session_state.edited_tables[file_key] = {
+            "tables": [],
+            "date": None,
+            "processed": False,
+        }
+
     # Save the uploaded file to a temporary location
     temp_pdf_path = os.path.abspath("temp.pdf")
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    if st.button("Process Document"):
+    if (
+        st.button("Process Document")
+        or st.session_state.edited_tables[file_key]["processed"]
+    ):
         try:
-            # Initialize the agent
-            agent = SelfDescribingOCRAgent(api_key=api_key)
+            # Only process if we haven't already done so
+            if not st.session_state.edited_tables[file_key]["processed"]:
+                # Initialize the agent
+                agent = SelfDescribingOCRAgent(api_key=api_key)
+                results = agent.process(temp_pdf_path)
 
-            # Run the full pipeline
-            results = agent.process(temp_pdf_path)
+                # Process and store the initial results
+                for page_num, _, line_items, _, corrected_image_bytes in results:
+                    if not isinstance(line_items, pd.DataFrame):
+                        line_items = pd.DataFrame()
 
-            edited_tables_with_pages = []
+                    # Clean the data
+                    def clean_cell(value):
+                        if pd.isna(value) or value == "" or value is None:
+                            return ""
+                        return str(value).strip()
 
-            for page_num, _, line_items, _, corrected_image_bytes in results:
-                if not isinstance(line_items, pd.DataFrame):
-                    st.warning(
-                        f"line_items is not a DataFrame for page {page_num}. Type: {type(line_items)}"
+                    display_df = line_items.applymap(clean_cell)
+                    display_df = display_df.loc[:, (display_df != "").any(axis=0)]
+                    display_df = display_df[(display_df != "").any(axis=1)]
+
+                    # Store in session state
+                    if "tables" not in st.session_state.edited_tables[file_key]:
+                        st.session_state.edited_tables[file_key]["tables"] = []
+
+                    st.session_state.edited_tables[file_key]["tables"].append(
+                        {
+                            "page_num": page_num,
+                            "data": display_df,
+                            "image": corrected_image_bytes,
+                            "original_columns": line_items.columns.tolist(),
+                        }
                     )
-                    line_items = (
-                        pd.DataFrame()
-                    )  # Convert to empty DataFrame to prevent further errors
 
-                # Clean the dataframe before displaying
-                if not isinstance(line_items, pd.DataFrame):
-                    line_items = pd.DataFrame()
+                st.session_state.edited_tables[file_key]["processed"] = True
 
-                # Function to clean cell values more leniently
-                def clean_cell(value):
-                    if pd.isna(value) or value == "" or value is None:
-                        return None
-                    str_val = str(value).strip()
-                    # Only return None for truly empty strings after stripping
-                    return str_val if str_val else None
+            # Display the tables with editing capability
+            for table_data in st.session_state.edited_tables[file_key]["tables"]:
+                st.subheader(f"Page {table_data['page_num']}")
 
-                st.subheader(f"Page {page_num}")
-
-                if corrected_image_bytes:
+                if table_data["image"]:
                     st.image(
-                        corrected_image_bytes,
-                        caption=f"Rotated Image for Page {page_num}",
+                        table_data["image"],
+                        caption=f"Rotated Image for Page {table_data['page_num']}",
                         width="stretch",
                     )
-                # Map converts all empty/None strings to actual None (which pandas treats as NaN)
-                line_items_cleaned = line_items.map(clean_cell)
 
-                line_items_cleaned = line_items_cleaned.dropna(axis=1, how="all")
-                line_items_cleaned = line_items_cleaned.dropna(axis=0, how="all")
-
-                # --- APPLY THE NEW CONDITIONAL FFILL LOGIC ---
-                line_items_cleaned = conditional_ffill(line_items_cleaned)
-
-                # The final .fillna("") at the end ensures that any cells that
-                # were NOT filled by the conditional logic (i.e., those that failed
-                # the look-ahead check) are explicitly converted back to empty strings.
-                line_items_cleaned = line_items_cleaned.fillna("")
-
-                if (
-                    not line_items_cleaned.empty
-                    and not line_items_cleaned.dropna(how="all").empty
-                ):
+                if not table_data["data"].empty:
                     try:
+                        # Use the key with page number to maintain state
+                        editor_key = f"editor_{file_key}_{table_data['page_num']}"
+
+                        # Display the editor with the current data
                         edited_df = st.data_editor(
-                            line_items_cleaned, key=f"editor_{page_num}"
+                            table_data["data"],
+                            key=editor_key,
+                            column_config={
+                                col: {"default": ""}
+                                for col in table_data["data"].columns
+                            },
                         )
+
+                        # Update the data in session state
+                        table_data["data"] = edited_df
+
                     except Exception as e:
-                        st.warning(
-                            f"Could not display dataframe directly, converting to string: {e}"
-                        )
-                        edited_df = st.data_editor(
-                            line_items_cleaned.astype(str), key=f"editor_{page_num}"
-                        )
-                    line_items_cleaned = edited_df
+                        st.warning(f"Error displaying data editor: {e}")
+                        st.dataframe(table_data["data"])
                 else:
                     st.info("No data to display for this page.")
-                    continue
-                if not line_items_cleaned.empty:
-                    edited_tables_with_pages.append((page_num, line_items_cleaned))
 
-                if date_to_display is None:
-                    for col in line_items.columns:
-                        if "date" in col.lower():
-                            for item in line_items[col]:
-                                try:
-                                    parsed_date = pd.to_datetime(str(item))
-                                    date_to_display = parsed_date.strftime(
-                                        "%A, %B %d, %Y"
-                                    )
-                                    break
-                                except (ValueError, TypeError):
-                                    continue
-                            if date_to_display:
-                                break
+            # Add download button
+            if st.button("Download All Results"):
+                tables_with_pages = [
+                    (t["page_num"], t["data"])
+                    for t in st.session_state.edited_tables[file_key]["tables"]
+                    if not t["data"].empty
+                ]
+
+                if tables_with_pages:
+                    zip_file_buffer = create_zip_archive(
+                        tables_with_pages, date_to_display
+                    )
+                    st.download_button(
+                        label="Download All Results (ZIP)",
+                        data=zip_file_buffer,
+                        file_name="extracted_results.zip",
+                        mime="application/zip",
+                    )
+
             processing_successful = True
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
-
-    # Render download buttons outside the try block, but only if processing was successful
-    if processing_successful and edited_tables_with_pages:
-        zip_file_buffer = create_zip_archive(edited_tables_with_pages, date_to_display)
-        st.download_button(
-            label="Download All Results (ZIP)",
-            data=zip_file_buffer,
-            file_name="extracted_results.zip",
-            mime="application/zip",
-        )
