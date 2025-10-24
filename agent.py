@@ -132,9 +132,13 @@ class SelfDescribingOCRAgent:
 - Vertical arrows / lines mean a value should be duplicated from the cell at the start of the arrow down to the cell at the end.
 - If a cell contains a range like `value1-value2`, this should be treated as a single data point in one cell, not split unless they are clearly intended for different columns.
 
-**Output Format:**
-- You MUST return the extracted data in a single, well-formed CSV format.
-- Do NOT include any explanatory text, notes, or apologies before or after the CSV data. The response should contain ONLY the CSV.
+**CRITICAL OUTPUT INSTRUCTIONS:**
+- Your ENTIRE response MUST be ONLY the CSV data.
+- DO NOT include markdown fences like ```csv or ```.
+- DO NOT include any introductory text, summaries, or explanations.
+- If you cannot find a table, you MUST still respond with a single header row as per the instructions above. Do not write "No table found."
+- The very first character of your response should be the first character of the CSV header.
+- The very last character of your response should be the last character of the last CSV row.
 """
         try:
             response_text = self._send_prompt_with_retry(
@@ -375,6 +379,7 @@ class SelfDescribingOCRAgent:
                             "validation_issues": [str(e)],
                         },
                         None,
+                        f"Error processing page: {e}",  # Add raw_text error
                     )
 
                 while next_page_to_yield in results_buffer:

@@ -214,103 +214,122 @@ if uploaded_file is not None and api_key:
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    if (
-        st.button("Process Document")
-        or st.session_state.edited_tables[file_key]["processed"]
-    ):
-        try:
-            # Only process if we haven't already done so
-            if not st.session_state.edited_tables[file_key]["processed"]:
-                # Initialize the agent
-                agent = SelfDescribingOCRAgent(api_key=api_key)
-                results = agent.process(temp_pdf_path)
-
-                # Process and store the initial results
-                for page_num, _, line_items, _, corrected_image_bytes in results:
-                    if not isinstance(line_items, pd.DataFrame):
-                        line_items = pd.DataFrame()
-
-                    # Clean the data
-                    def clean_cell(value):
-                        if pd.isna(value) or value == "" or value is None:
-                            return ""
-                        return str(value).strip()
-
-                    # Use map instead of applymap
-                    display_df = line_items.map(clean_cell)
-                    display_df = display_df.loc[:, (display_df != "").any(axis=0)]
-                    display_df = display_df[(display_df != "").any(axis=1)]
-
-                    # Store in session state
-                    if "tables" not in st.session_state.edited_tables[file_key]:
+        # If file has not been processed, show the button.
+        if not st.session_state.edited_tables[file_key]["processed"]:
+            if st.button("Process Document"):
+                try:
+                    with st.spinner("Processing document..."):
+                        # Initialize the agent
+                        agent = SelfDescribingOCRAgent(api_key=api_key)
+                        results = agent.process(temp_pdf_path)
+    
+                        # Clear previous tables for this key before adding new ones
                         st.session_state.edited_tables[file_key]["tables"] = []
-
-                    st.session_state.edited_tables[file_key]["tables"].append(
-                        {
-                            "page_num": page_num,
-                            "data": display_df,
-                            "image": corrected_image_bytes,
-                            "original_columns": line_items.columns.tolist(),
-                        }
-                    )
-
-                st.session_state.edited_tables[file_key]["processed"] = True
-
-            # Display the tables with editing capability
-            for table_data in st.session_state.edited_tables[file_key]["tables"]:
-                st.subheader(f"Page {table_data['page_num']}")
-
-                if table_data["image"]:
-                    st.image(
-                        table_data["image"],
-                        caption=f"Rotated Image for Page {table_data['page_num']}",
-                        width="stretch",
-                    )
-
-                if not table_data["data"].empty:
-                    try:
-                        # Use the key with page number to maintain state
-                        editor_key = f"editor_{file_key}_{table_data['page_num']}"
-
-                        # Display the editor with the current data
-                        edited_df = st.data_editor(
-                            table_data["data"],
-                            key=editor_key,
-                            column_config={
-                                col: {"default": ""}
-                                for col in table_data["data"].columns
-                            },
+    
+                        # Process and store the initial results
+                        for (
+                            page_num,
+                            _,
+                            line_items,
+                            _,
+                            corrected_image_bytes,
+                            raw_text,
+                        ) in results:
+                            if not isinstance(line_items, pd.DataFrame):
+                                line_items = pd.DataFrame()
+    
+                            # Clean the data
+                            def clean_cell(value):
+                                if pd.isna(value) or value == "" or value is None:
+                                    return ""
+                                return str(value).strip()
+    
+                            # Use map instead of applymap
+                            display_df = line_items.map(clean_cell)
+                            display_df = display_df.loc[:, (display_df != "").any(axis=0)]
+                            display_df = display_df[(display_df != "").any(axis=1)]
+    
+                            st.session_state.edited_tables[file_key]["tables"].append(
+                                {
+                                    "page_num": page_num,
+                                    "data": display_df,
+                                    "image": corrected_image_bytes,
+                                    "original_columns": line_items.columns.tolist(),
+                                    "raw_text": raw_text,
+                                }
+                            )
+    
+                        st.session_state.edited_tables[file_key]["processed"] = True
+                    st.rerun()
+    
+                except Exception as e:
+                    st.error(f"An error occurred during processing: {e}")
+                    # Reset processed flag on error to allow user to try again
+                    st.session_state.edited_tables[file_key]["processed"] = False
+    
+        # If file has been processed, display the results.
+        else:
+            try:
+                # Display the tables with editing capability
+                for table_data in st.session_state.edited_tables[file_key]["tables"]:
+                    st.subheader(f"Page {table_data['page_num']}")
+    
+                    if table_data["image"]:
+                        st.image(
+                            table_data["image"],
+                            caption=f"Rotated Image for Page {table_data['page_num']}",
+                            use_column_width="always",
                         )
-
-                        # Update the data in session state
-                        table_data["data"] = edited_df
-
-                    except Exception as e:
-                        st.warning(f"Error displaying data editor: {e}")
-                        st.dataframe(table_data["data"])
-                else:
-                    st.info("No data to display for this page.")
-
-            # Add download button
-            if st.button("Download All Results"):
-                tables_with_pages = [
-                    (t["page_num"], t["data"])
-                    for t in st.session_state.edited_tables[file_key]["tables"]
-                    if not t["data"].empty
-                ]
-
-                if tables_with_pages:
-                    zip_file_buffer = create_zip_archive(
-                        tables_with_pages, date_to_display
-                    )
-                    st.download_button(
-                        label="Download All Results (ZIP)",
-                        data=zip_file_buffer,
-                        file_name="extracted_results.zip",
-                        mime="application/zip",
-                    )
-
-            processing_successful = True
-
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+    
+                    # Display the raw text in an expander
+                    if table_data.get("raw_text"):
+                        with st.expander("View Raw Extracted Text"):
+                            st.text(table_data["raw_text"])
+    
+                    if not table_data["data"].empty:
+                        try:
+                            # Use the key with page number to maintain state
+                            editor_key = f"editor_{file_key}_{table_data['page_num']}"
+    
+                            # Display the editor with the current data
+                            edited_df = st.data_editor(
+                                table_data["data"],
+                                key=editor_key,
+                                column_config={
+                                    col: {"default": ""}
+                                    for col in table_data["data"].columns
+                                },
+                            )
+    
+                            # Update the data in session state
+                            table_data["data"] = edited_df
+    
+                        except Exception as e:
+                            st.warning(f"Error displaying data editor: {e}")
+                            st.dataframe(table_data["data"])
+                    else:
+                        st.info("No data to display for this page.")
+    
+                # Add download button
+                if st.button("Download All Results"):
+                    tables_with_pages = [
+                        (t["page_num"], t["data"])
+                        for t in st.session_state.edited_tables[file_key]["tables"]
+                        if not t["data"].empty
+                    ]
+    
+                    if tables_with_pages:
+                        zip_file_buffer = create_zip_archive(
+                            tables_with_pages, date_to_display
+                        )
+                        st.download_button(
+                            label="Download All Results (ZIP)",
+                            data=zip_file_buffer,
+                            file_name="extracted_results.zip",
+                            mime="application/zip",
+                        )
+    
+                processing_successful = True
+    
+            except Exception as e:
+                st.error(f"An error occurred while displaying results: {e}")
