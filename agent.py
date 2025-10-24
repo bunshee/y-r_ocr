@@ -122,12 +122,9 @@ class SelfDescribingOCRAgent:
         prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
 
 **Extraction Rules:**
-1.  **Identify All Tables:** Scrutinize the entire page to find any and all data organized in a tabular format (rows and columns). This includes data that looks like a table even if it doesn't have explicit grid lines.
-2.  **Combine Tables:** If you find multiple tables, you MUST combine them into a single CSV output.
-    - If tables have identical or similar column headers, merge them vertically.
-    - If tables have different structures, merge them by creating a superset of all columns. Fill in missing values for rows that don't have a particular column.
-3.  **Header Detection:** Accurately identify the column headers from the table.
-4.  **Data Formatting:**
+1.  **Identify Main Table:** Scrutinize the entire page to find the main table.
+2.  **Header Detection:** Accurately identify the column headers from the table.
+3.  **Data Formatting:**
     - Times: Use **HH:MM** format (e.g., 07:30).
     - Missing/Blank Data: Represent as an empty field in the CSV (e.g., ,,).
 
