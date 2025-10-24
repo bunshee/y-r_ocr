@@ -136,7 +136,7 @@ class SelfDescribingOCRAgent:
 ### Special Data Handling Rules (CRITICAL FOR ACCURACY)
 
 1.  **The Duplication Rule (Arrow/Line) *IMPORTANT*:**
-    * **If a vertical arrow or line is drawn through cells, the value in the first cell directly above it is copied down to all subsequent cells until another value is written in the column.**
+    * **If a vertical arrow or line  or line with checkmark is drawn through cells, the value in the first cell directly above it is copied down to all subsequent cells until another value is written in the column.**
     * Duplication stops only when the mark ends or a new unique value is written in the column.
 
 2.  **The Single Cell Rule (Compound Values):**
