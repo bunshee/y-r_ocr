@@ -135,7 +135,6 @@ class SelfDescribingOCRAgent:
 **Output Format:**
 - You MUST return the extracted data in a single, well-formed CSV format.
 - Do NOT include any explanatory text, notes, or apologies before or after the CSV data. The response should contain ONLY the CSV.
-- If no tables are found on the page, you MUST return a single line containing only the header of the most likely table that could have been on the page, or a generic header if no structure is apparent. For example: "Column 1,Column 2,Column 3"
 """
         try:
             response_text = self._send_prompt_with_retry(
