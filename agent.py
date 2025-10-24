@@ -117,30 +117,47 @@ class SelfDescribingOCRAgent:
         """Single-pass extraction with optimized table-specific instructions."""
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
-        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
+        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
 
-**Extraction Rules:**
-- Only get the middle table from the document.
-- Do not include other text outside of main table or header tables in the response.
-- Column names must be exactly the same as in table.
-- Be consistent with the table format.
-- All cell values must be quoted.
+## Extraction Rules 📝
 
-**Special Instructions (CRITICAL FOR DATA ACCURACY):**
-1. **Vertical Repetition (The "Arrow Rule"):** **Vertical arrows, single lines, or down-arrows** drawn in a column indicate that the value in the cell at the start of the mark **MUST BE DUPLICATED** down to all subsequent cells covered by the mark. Duplication stops only when the mark ends, or a new unique handwritten value appears in the column. This rule is universal for ALL columns in which these marks appear.
-2. **Compound Values:** If a cell contains a range or sequence like `value1-value2`, `value1 value2`, or `value1/value2` (e.g., "1p 2p"), this must be treated as a single data point in **one cell**, not split.
-3. **Blank Data:** Represent all missing or blank data as an empty field in the CSV.
+***
 
-**Data Formatting:**
-- **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**, keep the original entry as the value, but ensure it is quoted (e.g., "7A", "4:15P").
+### General Structural Rules
 
-**CRITICAL OUTPUT INSTRUCTIONS:**
-- Your ENTIRE response MUST be ONLY the CSV data.
-- DO NOT include markdown fences like ```csv or ```.
-- DO NOT include any introductory text, summaries, or explanations.
-- If you cannot find a table, you MUST still respond with a single header row as per the instructions above. Do not write "No table found."
-- The very first character of your response should be the first character of the CSV header.
-- The very last character of your response should be the last character of the last CSV row.
+* **Target Table:** Only get the **middle table** from the document.
+* **Context Exclusion:** Do not include other text outside of the main table or header tables in the response.
+* **Headers:** Column names **must be exactly the same** as in the table.
+* **Format Consistency:** Be consistent with the table format.
+* **Quoting:** All cell values **must be quoted**.
+
+***
+
+### Special Data Handling Rules (CRITICAL FOR ACCURACY)
+
+1.  **The Duplication Rule (Arrow/Line):**
+    * **If a vertical arrow or line is drawn through cells, the value in the first cell covered by the mark is copied down to all subsequent cells under the mark.**
+    * Duplication stops only when the mark ends or a new unique value is written in the column.
+
+2.  **The Single Cell Rule (Compound Values):**
+    * **Any connected sequence of values** (e.g., "A-B," "X Y," or "1/2") in a single cell **must be kept together as one data point** and should not be split into multiple cells or columns.
+
+3.  **Blank Data:** Represent all missing or blank data as an **empty field** in the CSV (e.g., `,"",`).
+
+***
+
+### Data Formatting
+
+* **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**, keep the **original entry as the value**, but ensure it is quoted (e.g., "7A", "4:15P").
+
+## CRITICAL OUTPUT INSTRUCTIONS
+
+* Your ENTIRE response **MUST be ONLY the CSV data**.
+* **DO NOT** include markdown fences like \`\`\`csv or \`\`\`.
+* **DO NOT** include any introductory text, summaries, or explanations.
+* If you cannot find a table, you **MUST** still respond with a single header row as per the instructions above. Do not write "No table found."
+* The very first character of your response should be the first character of the CSV header.
+* The very last character of your response should be the last character of the last CSV row.
 """
         try:
             response_text = self._send_prompt_with_retry(
