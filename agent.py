@@ -124,7 +124,7 @@ class SelfDescribingOCRAgent:
 - Do not include other text outside of main table or header tables in the response.
 - Column names must be exactly the same as in table.
 - Be consistent with the table format.
-- All cell values must start with an apostrophe (').
+- All cell values must quoted.
 
 **Data Formatting:**
     - Times: Use **HH:MM** format (e.g., 07:30).
