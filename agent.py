@@ -119,7 +119,10 @@ class SelfDescribingOCRAgent:
         """Single-pass extraction with optimized table-specific instructions."""
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
-        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Analyze this document and extract ALL structured data.
+        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction**  Analyze this document and extract ALL structured data.
+
+**Role:**
+- You must extract only the data from the table.
 
 **Field Extraction Instructions:**
 - Field Names: Get accurate field names from the header names, the ones directly above the table.
