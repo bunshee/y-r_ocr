@@ -110,8 +110,7 @@ class SelfDescribingOCRAgent:
 ### Special Data Handling Rules (CRITICAL FOR ACCURACY)
 
 1.  **The Duplication Rule (Arrow/Line/Checkmark):**
-    * **If a vertical arrow or line  or line with checkmark is drawn through cells, the value in the first cell directly above it is forcebly copied down to all subsequent cells until another value is written in the column.**
-    * Duplication stops only when the mark ends or a new unique value is written in the column.
+    * Make sure to put a checkmark `✔️` whenever a vertical line or arrow ends.
 
 2.  **The Single Cell Rule (Compound Values):**
     * **Any connected sequence of values** (e.g., "A-B," "X Y," or "1/2") in a single cell **must be kept together as one data point** and should not be split into multiple cells or columns.
