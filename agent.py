@@ -19,7 +19,7 @@ from pypdf import PdfReader, PdfWriter
 
 class SelfDescribingOCRAgent:
     def __init__(
-        self, api_key, model_name="gemini-2.5-flash", max_workers=4, max_retries=3
+        self, api_key, model_name="gemini-2.5-flash-image", max_workers=4, max_retries=3
     ):
         """Initialize OCR agent with improved configuration."""
         self.client = genai.Client(api_key=api_key)

@@ -191,6 +191,14 @@ if "edited_tables" not in st.session_state:
 # Get API key from user
 api_key = st.text_input("Enter your Google API Key:", type="password")
 
+# Model selector
+model_name = st.selectbox(
+    "Select Gemini Model:",
+    options=["gemini-2.5-flash-image", "gemini-2.5-flash", "gemini-2.5-pro"],
+    index=0,  # Default to gemini-2.5-flash-image
+    help="Choose the Gemini model for OCR processing"
+)
+
 # File uploader
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
@@ -218,7 +226,7 @@ if uploaded_file is not None and api_key:
     if not st.session_state.edited_tables[file_key]["processed"]:
         if st.button("Process Document"):
             try:
-                agent = SelfDescribingOCRAgent(api_key=api_key)
+                agent = SelfDescribingOCRAgent(api_key=api_key, model_name=model_name)
                 results_generator, total_pages = agent.process(temp_pdf_path)
 
                 st.write(f"Found {total_pages} pages. Processing...")
