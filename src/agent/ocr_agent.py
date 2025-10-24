@@ -105,28 +105,14 @@ class SelfDescribingOCRAgent:
 * **Format Consistency:** Be consistent with the table format.
 * **Quoting:** All cell values **must be quoted**.
 
-***
-
-### Special Data Handling Rules (CRITICAL FOR ACCURACY)
-
-1.  **The Duplication Rule (Arrow/Line/Checkmark):**
-    * Make sure to put a checkmark `✔️` whenever a vertical line or arrow ends.
-
-2.  **The Single Cell Rule (Compound Values):**
-    * **Any connected sequence of values** (e.g., "A-B," "X Y," or "1/2") in a single cell **must be kept together as one data point** and should not be split into multiple cells or columns.
-
-3.  **Blank Data:** Represent all missing or blank data as an **empty field** in the CSV (e.g., `,"",`).
-
-***
-
 ### Data Formatting
 
-* **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM** or not.
+* **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**.
 
 ## CRITICAL OUTPUT INSTRUCTIONS
 
 * Your ENTIRE response **MUST be ONLY the CSV data**.
-* **DO NOT** include markdown fences like \`\`\`csv or \`\`\`.
+* **DO NOT** include markdown fences like ```csv or ```.
 * **DO NOT** include any introductory text, summaries, or explanations.
 * If you cannot find a table, you **MUST** still respond with a single header row as per the instructions above. Do not write "No table found."
 * The very first character of your response should be the first character of the CSV header.
