@@ -1,5 +1,4 @@
 import io
-import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -133,22 +132,34 @@ class SelfDescribingOCRAgent:
 - If value is `value1`-`value2`, then the values are in different columns. 
 
 **Output Format:**
-Return a DataFrame with all the data as csv.
+CRITICAL: Only return a DataFrame with all the data as csv.
 """
         try:
             response_text = self._send_prompt_with_retry(
                 [file_part],
                 prompt,
-                response_mime_type="application/json",
+                response_mime_type="text/plain",
                 schema=None,
             )
-            result = json.loads(response_text)
+            # The response is now a CSV string.
+            # Let's try to clean it up, as model might add backticks or "csv" label.
+            cleaned_csv = re.sub(r"^(?i)```csv```$", "", response_text).strip()
 
-            # Ensure required keys exist
-            if "metadata" not in result:
-                result["metadata"] = {}
-            if "line_items" not in result:
-                result["line_items"] = []
+            # Use pandas to read the csv.
+            df = pd.read_csv(io.StringIO(cleaned_csv))
+
+            # Convert dataframe to list of dicts for line_items
+            line_items = df.to_dict(orient="records")
+
+            # The other information is no longer available from the prompt.
+            # I will have to return default/empty values for them.
+            result = {
+                "document_type": "unknown",
+                "confidence": "medium",  # Let's assume medium confidence if we get a dataframe
+                "fields": [{"name": col} for col in df.columns],  # generate from df
+                "metadata": {},
+                "line_items": line_items,
+            }
 
             print(
                 f"📄 Document Type: {result.get('document_type', 'unknown')} "
@@ -160,8 +171,8 @@ Return a DataFrame with all the data as csv.
                 f"{len(result.get('line_items', []))} line items"
             )
             return result
-        except json.JSONDecodeError as e:
-            print(f"❌ Failed to parse JSON response: {e}")
+        except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+            print(f"❌ Failed to parse CSV response: {e}")
             return {
                 "document_type": "unknown",
                 "confidence": "low",
