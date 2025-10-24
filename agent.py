@@ -124,15 +124,15 @@ class SelfDescribingOCRAgent:
 - Do not include other text outside of main table or header tables in the response.
 - Column names must be exactly the same as in table.
 - Be consistent with the table format.
-- All cell values must quoted.
+- All cell values must be quoted.
+
+**Special Instructions (CRITICAL FOR DATA ACCURACY):**
+1. **Vertical Repetition (The "Arrow Rule"):** **Vertical arrows, single lines, or down-arrows** drawn in a column indicate that the value in the cell at the start of the mark **MUST BE DUPLICATED** down to all subsequent cells covered by the mark. Duplication stops only when the mark ends, or a new unique handwritten value appears in the column. This rule is universal for ALL columns in which these marks appear.
+2. **Compound Values:** If a cell contains a range or sequence like `value1-value2`, `value1 value2`, or `value1/value2` (e.g., "1p 2p"), this must be treated as a single data point in **one cell**, not split.
+3. **Blank Data:** Represent all missing or blank data as an empty field in the CSV.
 
 **Data Formatting:**
-    - Times: Use **HH:MM** format (e.g., 07:30).
-    - Missing/Blank Data: Represent as an empty field in the CSV (e.g., ,,).
-
-**Special Instructions:**
-- Vertical arrows / lines mean a value should be duplicated from the cell at the start of the arrow down to the cell at the end.
-- If a cell contains a range like `value1-value2`, this should be treated as a single data point in one cell, not split unless they are clearly intended for different columns.
+- **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**, keep the original entry as the value, but ensure it is quoted (e.g., "7A", "4:15P").
 
 **CRITICAL OUTPUT INSTRUCTIONS:**
 - Your ENTIRE response MUST be ONLY the CSV data.
