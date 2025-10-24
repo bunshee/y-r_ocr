@@ -119,7 +119,7 @@ class SelfDescribingOCRAgent:
 
         prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
 
-## Extraction Rules 📝
+## Extraction Rules 
 
 ***
 
@@ -135,7 +135,7 @@ class SelfDescribingOCRAgent:
 
 ### Special Data Handling Rules (CRITICAL FOR ACCURACY)
 
-1.  **The Duplication Rule (Arrow/Line):**
+1.  **The Duplication Rule (Arrow/Line) *IMPORTANT*:**
     * **If a vertical arrow or line is drawn through cells, the value in the first cell covered by the mark is copied down to all subsequent cells under the mark.**
     * Duplication stops only when the mark ends or a new unique value is written in the column.
 
@@ -148,7 +148,7 @@ class SelfDescribingOCRAgent:
 
 ### Data Formatting
 
-* **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**, keep the **original entry as the value**, but ensure it is quoted (e.g., "7A", "4:15P").
+* **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM** or not.
 
 ## CRITICAL OUTPUT INSTRUCTIONS
 
