@@ -119,23 +119,26 @@ class SelfDescribingOCRAgent:
         """Single-pass extraction with optimized table-specific instructions."""
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
-        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction**  Analyze this document and extract ALL structured data.
+        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
 
-**Role:**
-- You must extract only the data from the table.
-
-**Field Extraction Instructions:**
-- Field Names: Get accurate field names from the header names, the ones directly above the table.
-- Times: Use **HH:MM** format (e.g., 07:30).
-- Missing/Blank Data: Empty string.
+**Extraction Rules:**
+1.  **Identify All Tables:** Scrutinize the entire page to find any and all data organized in a tabular format (rows and columns). This includes data that looks like a table even if it doesn't have explicit grid lines.
+2.  **Combine Tables:** If you find multiple tables, you MUST combine them into a single CSV output.
+    - If tables have identical or similar column headers, merge them vertically.
+    - If tables have different structures, merge them by creating a superset of all columns. Fill in missing values for rows that don't have a particular column.
+3.  **Header Detection:** Accurately identify the column headers from the table.
+4.  **Data Formatting:**
+    - Times: Use **HH:MM** format (e.g., 07:30).
+    - Missing/Blank Data: Represent as an empty field in the CSV (e.g., ,,).
 
 **Special Instructions:**
-- Make sure numbers are correct.
-- Vertical arrows / lines mean value must be duplicated from the top of the arrow to its end.
-- If value is `value1`-`value2`, then the values are in different columns. 
+- Vertical arrows / lines mean a value should be duplicated from the cell at the start of the arrow down to the cell at the end.
+- If a cell contains a range like `value1-value2`, this should be treated as a single data point in one cell, not split unless they are clearly intended for different columns.
 
 **Output Format:**
-CRITICAL: Only return a DataFrame with all the data as csv.
+- You MUST return the extracted data in a single, well-formed CSV format.
+- Do NOT include any explanatory text, notes, or apologies before or after the CSV data. The response should contain ONLY the CSV.
+- If no tables are found on the page, you MUST return a single line containing only the header of the most likely table that could have been on the page, or a generic header if no structure is apparent. For example: "Column 1,Column 2,Column 3"
 """
         try:
             response_text = self._send_prompt_with_retry(
