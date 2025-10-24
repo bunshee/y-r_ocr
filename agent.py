@@ -122,9 +122,12 @@ class SelfDescribingOCRAgent:
         prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided document page.
 
 **Extraction Rules:**
-1.  **Identify Main Table:** Scrutinize the entire page to find the main table.
-2.  **Header Detection:** Accurately identify the column headers from the table.
-3.  **Data Formatting:**
+1.  **Identify All Tables:** Scrutinize the entire page to find any and all data organized in a tabular format (rows and columns). This includes data that looks like a table even if it doesn't have explicit grid lines.
+2.  **Combine Tables:** If you find multiple tables, you MUST combine them into a single CSV output.
+    - If tables have identical or similar column headers, merge them vertically.
+    - If tables have different structures, merge them by creating a superset of all columns. Fill in missing values for rows that don't have a particular column.
+3.  **Header Detection:** Accurately identify the column headers from the table.
+4.  **Data Formatting:**
     - Times: Use **HH:MM** format (e.g., 07:30).
     - Missing/Blank Data: Represent as an empty field in the CSV (e.g., ,,).
 
@@ -147,69 +150,36 @@ class SelfDescribingOCRAgent:
                 response_mime_type="text/plain",
                 schema=None,
             )
-
-            # Clean up the response text
-            cleaned_text = response_text.strip()
-
-            # Remove markdown code block markers if present
-            if cleaned_text.startswith("```") and "\n" in cleaned_text:
-                # Remove the first and last lines (the code block markers)
-                cleaned_text = "\n".join(cleaned_text.split("\n")[1:-1])
-
-            # Clean up any remaining backticks
-            cleaned_text = cleaned_text.replace("```", "").strip()
-
-            # Debug output
-            print(
-                f"Cleaned CSV text:\n{cleaned_text[:500]}..."
-            )  # Print first 500 chars for debugging
-
-            # Try to read as CSV
-            try:
-                df = pd.read_csv(
-                    io.StringIO(cleaned_text), dtype=str, keep_default_na=False
-                )
-
-                # Ensure we have a valid DataFrame with columns
-                if df.empty or len(df.columns) == 0:
-                    raise ValueError("Empty or invalid CSV data")
-
-                # Convert empty strings to None for consistency
-                df = df.replace("", None)
-
-            except pd.errors.EmptyDataError:
-                print("Warning: Empty CSV data received")
-                df = pd.DataFrame(columns=["Error"])
-                df.loc[0] = ["No table data could be extracted from this page"]
-
-            # Convert dataframe to list of dicts for line_items
+            cleaned_csv = re.sub(r"^(?i)```csv\n|```$", "", response_text).strip()
+            df = pd.read_csv(io.StringIO(cleaned_csv))
             line_items = df.to_dict(orient="records")
 
-            # Create the result structure
             result = {
-                "document_type": "timesheet",  # Default document type
-                "confidence": "high" if not df.empty else "low",
-                "fields": [{"name": str(col)} for col in df.columns],
+                "document_type": "unknown",
+                "confidence": "medium",
+                "fields": [{"name": col} for col in df.columns],
                 "metadata": {},
                 "line_items": line_items,
-                "raw_data": df,  # Include the raw DataFrame for debugging
+                "raw_text": response_text,
             }
-
-            print(
-                f"📄 Extracted {len(result.get('fields', []))} fields, "
-                f"{len(result.get('line_items', []))} rows"
-            )
             return result
-
-        except Exception as e:
-            print(f"❌ Extraction failed: {str(e)}")
+        except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
             return {
                 "document_type": "unknown",
                 "confidence": "low",
                 "fields": [],
                 "metadata": {},
                 "line_items": [],
-                "error": str(e),
+                "raw_text": response_text,
+            }
+        except Exception as e:
+            return {
+                "document_type": "unknown",
+                "confidence": "low",
+                "fields": [],
+                "metadata": {},
+                "line_items": [],
+                "raw_text": f"Extraction failed: {e}",
             }
 
     def _detect_mime_type(self, file_path: str) -> str:
@@ -285,7 +255,6 @@ class SelfDescribingOCRAgent:
         pdf_page_bytes = buffer.read()
 
         # 2. Perform Image Rotation Correction
-        # This is the step that guarantees an upright image is sent to the model, IF DEPENDENCIES WORK.
         corrected_bytes, file_mime_type = self._detect_and_correct_rotation(
             pdf_page_bytes
         )
@@ -293,7 +262,6 @@ class SelfDescribingOCRAgent:
         if file_mime_type == "image/png":
             print(f"🖼️ Page {page_num} successfully converted to upright PNG image.")
         else:
-            # This path is taken if the image rotation pipeline failed (expected based on previous error)
             print(f"⚠️ Page {page_num} sent as original PDF (MIME: {file_mime_type}).")
 
         # 3. Add **CRITICAL VISUAL FAILSAFE** instruction
@@ -311,7 +279,7 @@ class SelfDescribingOCRAgent:
             f"{custom_instructions}"
         )
 
-        # Process with single-pass extraction, using the corrected bytes and MIME type
+        # Process with single-pass extraction
         result = self.extract_data_single_pass(
             corrected_bytes, file_mime_type, page_instructions
         )
@@ -322,7 +290,7 @@ class SelfDescribingOCRAgent:
         # Convert to DataFrame format
         metadata = result.get("metadata", {})
         line_items_data = result.get("line_items", [])
-
+        raw_text = result.get("raw_text", "")  # Get raw text
         line_items_df = pd.DataFrame(line_items_data)
 
         schema_info = {
@@ -333,7 +301,7 @@ class SelfDescribingOCRAgent:
             "validation_issues": issues,
         }
 
-        return page_num, metadata, line_items_df, schema_info, corrected_bytes
+        return page_num, metadata, line_items_df, schema_info, corrected_bytes, raw_text
 
     def process_pdf_parallel(self, file_path: str, custom_instructions: str = ""):
         """Process PDF pages in parallel for significantly better performance."""
