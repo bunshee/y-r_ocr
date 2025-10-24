@@ -26,7 +26,7 @@ api_key = st.text_input("Enter your Google API Key:", type="password")
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
 
-def run_validation_in_background(api_key, model_name, file_key, pages_data):
+def run_validation_in_background(api_key, file_key, pages_data):
     """Run async validation in a background thread."""
 
     def run_async():
@@ -34,7 +34,7 @@ def run_validation_in_background(api_key, model_name, file_key, pages_data):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            validator = AsyncValidationAgent(api_key, model_name)
+            validator = AsyncValidationAgent(api_key, "gemini-2.5-flash-image")
             results = loop.run_until_complete(validator.validate_all_pages(pages_data))
 
             st.session_state.validation_results[file_key] = results
