@@ -203,7 +203,21 @@ class SelfDescribingOCRAgent:
 
         if file_path.lower().endswith(".pdf"):
             # PDF is handled by the parallel processor
-            return self.process_pdf_parallel(file_path, custom_instructions)
+            try:
+                reader = PdfReader(file_path)
+                total_pages = len(reader.pages)
+            except Exception as e:
+                print(f"❌ Failed to read PDF file: {e}")
+
+                def error_generator(e):
+                    yield (1, {}, pd.DataFrame(), {}, None, f"Failed to read PDF: {e}")
+
+                return error_generator(e), 1
+
+            results_generator = self.process_pdf_parallel(
+                reader, total_pages, custom_instructions
+            )
+            return results_generator, total_pages
 
         # Non-PDF files are handled here
         with open(file_path, "rb") as f:
@@ -216,27 +230,23 @@ class SelfDescribingOCRAgent:
             file_bytes, mime_type, custom_instructions
         )
 
-        # Validate extraction
-        confidence_score, issues = self._validate_extraction(result)
-        print(f"📊 Extraction confidence: {confidence_score:.2%}")
+        # For non-PDF, we wrap the single result in a generator and return a total of 1 page
+        def single_result_generator():
+            # This part needs to be consistent with the 6-element tuple
+            metadata = result.get("metadata", {})
+            line_items_data = result.get("line_items", [])
+            raw_text = result.get("raw_text", "")
+            line_items_df = pd.DataFrame(line_items_data)
+            schema_info = {
+                "document_type": result.get("document_type", "unknown"),
+                "confidence": result.get("confidence", "low"),
+                "fields": result.get("fields", []),
+                "validation_score": 0.0,  # Simplified for non-pdf
+                "validation_issues": [],
+            }
+            yield 1, metadata, line_items_df, schema_info, file_bytes, raw_text
 
-        # Convert to DataFrame format
-        metadata = result.get("metadata", {})
-        line_items_data = result.get("line_items", [])
-
-        line_items_df = pd.DataFrame(line_items_data)
-
-        # Return in format compatible with existing code
-        schema_info = {
-            "document_type": result.get("document_type", "unknown"),
-            "confidence": result.get("confidence", "low"),
-            "fields": result.get("fields", []),
-            "validation_score": confidence_score,
-            "validation_issues": issues,
-        }
-
-        print("✅ Processing complete.")
-        return metadata, line_items_df, schema_info
+        return single_result_generator(), 1
 
     def _process_page_in_memory(
         self, page, page_num: int, total_pages: int, custom_instructions: str = ""
@@ -301,11 +311,10 @@ class SelfDescribingOCRAgent:
 
         return page_num, metadata, line_items_df, schema_info, corrected_bytes, raw_text
 
-    def process_pdf_parallel(self, file_path: str, custom_instructions: str = ""):
+    def process_pdf_parallel(
+        self, reader: PdfReader, total_pages: int, custom_instructions: str = ""
+    ):
         """Process PDF pages in parallel for significantly better performance."""
-        reader = PdfReader(file_path)
-        total_pages = len(reader.pages)
-
         print(
             f"📚 Processing {total_pages} pages in parallel (max {self.max_workers} workers)..."
         )
@@ -345,7 +354,7 @@ class SelfDescribingOCRAgent:
                             "validation_issues": [str(e)],
                         },
                         None,
-                        f"Error processing page: {e}",  # Add raw_text error
+                        f"Error processing page: {e}",
                     )
 
                 while next_page_to_yield in results_buffer:
@@ -362,7 +371,9 @@ class SelfDescribingOCRAgent:
         self, file_path, custom_instructions="", auto_infer=True
     ):
         """Legacy method retained for compatibility, redirects to parallel processing."""
-        return self.process_pdf_parallel(file_path, custom_instructions)
+        reader = PdfReader(file_path)
+        total_pages = len(reader.pages)
+        return self.process_pdf_parallel(reader, total_pages, custom_instructions)
 
     def _validate_extraction(self, result: Dict) -> Tuple[float, List[str]]:
         """Validate extracted data and compute confidence score."""

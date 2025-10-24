@@ -214,61 +214,61 @@ if uploaded_file is not None and api_key:
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-        # If file has not been processed, show the button.
-        if not st.session_state.edited_tables[file_key]["processed"]:
-            if st.button("Process Document"):
-                try:
-                    with st.spinner("Processing document..."):
-                        # Initialize the agent
-                        agent = SelfDescribingOCRAgent(api_key=api_key)
-                        results = agent.process(temp_pdf_path)
-    
-                        # Clear previous tables for this key before adding new ones
-                        st.session_state.edited_tables[file_key]["tables"] = []
-    
-                        # Process and store the initial results
-                        for (
-                            page_num,
-                            _,
-                            line_items,
-                            _,
-                            corrected_image_bytes,
-                            raw_text,
-                        ) in results:
-                            if not isinstance(line_items, pd.DataFrame):
-                                line_items = pd.DataFrame()
-    
-                            # Clean the data
-                            def clean_cell(value):
-                                if pd.isna(value) or value == "" or value is None:
-                                    return ""
-                                return str(value).strip()
-    
-                            # Use map instead of applymap
-                            display_df = line_items.map(clean_cell)
-                            display_df = display_df.loc[:, (display_df != "").any(axis=0)]
-                            display_df = display_df[(display_df != "").any(axis=1)]
-    
-                            st.session_state.edited_tables[file_key]["tables"].append(
-                                {
-                                    "page_num": page_num,
-                                    "data": display_df,
-                                    "image": corrected_image_bytes,
-                                    "original_columns": line_items.columns.tolist(),
-                                    "raw_text": raw_text,
-                                }
-                            )
-    
-                        st.session_state.edited_tables[file_key]["processed"] = True
-                    st.rerun()
-    
-                except Exception as e:
-                    st.error(f"An error occurred during processing: {e}")
-                    # Reset processed flag on error to allow user to try again
-                    st.session_state.edited_tables[file_key]["processed"] = False
-    
-        # If file has been processed, display the results.
-        else:
+    # If file has not been processed, show the button.
+    if not st.session_state.edited_tables[file_key]["processed"]:
+        if st.button("Process Document"):
+            try:
+                agent = SelfDescribingOCRAgent(api_key=api_key)
+                results_generator, total_pages = agent.process(temp_pdf_path)
+
+                st.write(f"Found {total_pages} pages. Processing...")
+                progress_bar = st.progress(0)
+
+                st.session_state.edited_tables[file_key]["tables"] = []
+
+                for i, (
+                    page_num,
+                    _,
+                    line_items,
+                    _,
+                    corrected_image_bytes,
+                    raw_text,
+                ) in enumerate(results_generator):
+                    # Clean the data
+                    def clean_cell(value):
+                        if pd.isna(value) or value == "" or value is None:
+                            return ""
+                        return str(value).strip()
+
+                    if not isinstance(line_items, pd.DataFrame):
+                        line_items = pd.DataFrame()
+
+                    display_df = line_items.map(clean_cell)
+                    display_df = display_df.loc[:, (display_df != "").any(axis=0)]
+                    display_df = display_df[(display_df != "").any(axis=1)]
+
+                    st.session_state.edited_tables[file_key]["tables"].append(
+                        {
+                            "page_num": page_num,
+                            "data": display_df,
+                            "image": corrected_image_bytes,
+                            "original_columns": line_items.columns.tolist(),
+                            "raw_text": raw_text,
+                        }
+                    )
+
+                    # Update progress bar
+                    progress_bar.progress(int(((i + 1) / total_pages) * 100))
+
+                st.session_state.edited_tables[file_key]["processed"] = True
+                progress_bar.empty()  # Remove progress bar after completion
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"An error occurred during processing: {e}")
+                st.session_state.edited_tables[file_key]["processed"] = False    
+    # If file has been processed, display the results.
+    else:
             try:
                 # Display the tables with editing capability
                 for table_data in st.session_state.edited_tables[file_key]["tables"]:
