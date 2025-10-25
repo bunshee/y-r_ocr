@@ -104,7 +104,7 @@ if uploaded_file is not None and api_key:
                     st.image(
                         table_data["image"],
                         caption=f"Rotated Image for Page {table_data['page_num']}",
-                        use_column_width="auto",
+                        use_container_width=True,
                     )
 
                 if table_data.get("raw_text"):
