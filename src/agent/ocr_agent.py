@@ -2,25 +2,37 @@ import io
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 import pytesseract
-from google import genai
 from google.genai import types
+from google.genai.client import Client
 from pdf2image import convert_from_bytes
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
+from utils.google_ai import (
+    detect_mime_type,
+    send_prompt_with_retry,
+    validate_extraction,
+)
+
 
 class SelfDescribingOCRAgent:
     def __init__(
-        self, api_key, model_name="gemini-2.5-flash", max_workers=4, max_retries=3
+        self,
+        api_key,
+        model_name="gemini-1.5-flash",
+        max_workers=4,
+        max_retries=3,
+        temperature=0.0,
     ):
-        self.client = genai.Client(api_key=api_key)
+        self.client = Client(api_key=api_key)
         self.model_name = model_name
         self.max_workers = max_workers
         self.max_retries = max_retries
+        self.temperature = temperature
 
     def _detect_and_correct_rotation(self, pdf_page_bytes: bytes) -> Tuple[bytes, str]:
         try:
@@ -56,98 +68,56 @@ class SelfDescribingOCRAgent:
             )
             return pdf_page_bytes, "application/pdf"
 
-    def _send_prompt_with_retry(
-        self, parts, system_prompt, response_mime_type="text/plain", schema=None
-    ):
-        last_error = None
-
-        for attempt in range(self.max_retries):
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=parts + [system_prompt],
-                    config=types.GenerateContentConfig(
-                        temperature=0.0,
-                        response_mime_type=response_mime_type,
-                        response_schema=types.Schema(**schema) if schema else None,
-                    ),
-                )
-                return response.text.strip()
-            except Exception as e:
-                last_error = e
-                if attempt < self.max_retries - 1:
-                    wait_time = (2**attempt) + (time.time() % 1)
-                    print(
-                        f"⚠️ API call failed (attempt {attempt + 1}/{self.max_retries}): {e}. Retrying in {wait_time:.2f}s..."
-                    )
-                    time.sleep(wait_time)
-                else:
-                    print(f"❌ API call failed after {self.max_retries} attempts: {e}")
-
-        raise last_error
-
     def extract_data_single_pass(
         self, file_bytes: bytes, mime_type: str, custom_instructions: str = ""
     ) -> Dict:
-        file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
-
-        prompt = """You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
-
-## Extraction Rules
-
-***
-
-### General Structural Rules
-
-* **Target Table:** Only get the **middle table** from the document.
-* **Context Exclusion:** Do not include other text outside of the main table or header tables in the response.
-* **Headers:** Column names **must be exactly the same** as in the table.
-* **Format Consistency:** Be consistent with the table format.
-* **Quoting:** All cell values **must be quoted**.
-
-### Data Formatting
-
-* **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**.
-
-## CRITICAL OUTPUT INSTRUCTIONS
-
-* Your ENTIRE response **MUST be ONLY the CSV data**.
-* **DO NOT** include markdown fences like ```csv or ```.
-* **DO NOT** include any introductory text, summaries, or explanations.
-* If you cannot find a table, you **MUST** still respond with a single header row as per the instructions above. Do not write "No table found."
-* The very first character of your response should be the first character of the CSV header.
-* The very last character of your response should be the last character of the last CSV row.
-"""
+        parts, system_prompt = self._construct_prompt(
+            file_bytes, mime_type, custom_instructions
+        )
         try:
-            response_text = self._send_prompt_with_retry(
-                [file_part],
-                prompt,
+            response_text = send_prompt_with_retry(
+                self.client,
+                self.model_name,
+                parts,
+                system_prompt,
+                self.max_retries,
                 response_mime_type="text/plain",
-                schema=None,
+                temperature=self.temperature,
             )
             cleaned_csv = re.sub(r"(?i)^```csv\n|```$", "", response_text).strip()
             df = pd.read_csv(io.StringIO(cleaned_csv))
-            line_items = df.to_dict(orient="records")
+
+            date_prompt = "From the text, what is the date of the document? Respond with only the date and nothing else."
+            date_response = send_prompt_with_retry(
+                self.client,
+                self.model_name,
+                parts,
+                date_prompt,
+                self.max_retries,
+                response_mime_type="text/plain",
+            )
 
             result = {
-                "document_type": "unknown",
-                "confidence": "medium",
+                "document_type": "timesheet",
+                "confidence": "high",
                 "fields": [{"name": col} for col in df.columns],
-                "metadata": {},
-                "line_items": line_items,
+                "metadata": {"date": date_response},
+                "line_items": df.to_dict(orient="records"),
                 "raw_text": response_text,
             }
             return result
-        except (pd.errors.ParserError, pd.errors.EmptyDataError):
+        except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+            print(f"Failed to parse CSV: {e}")
             return {
                 "document_type": "unknown",
                 "confidence": "low",
                 "fields": [],
                 "metadata": {},
                 "line_items": [],
-                "raw_text": response_text,
+                "raw_text": f"CSV parsing failed: {e}",
             }
         except Exception as e:
+            print(f"Extraction failed: {e}")
             return {
                 "document_type": "unknown",
                 "confidence": "low",
@@ -156,20 +126,6 @@ class SelfDescribingOCRAgent:
                 "line_items": [],
                 "raw_text": f"Extraction failed: {e}",
             }
-
-    def _detect_mime_type(self, file_path: str) -> str:
-        ext = file_path.lower().split(".")[-1]
-        mime_types = {
-            "pdf": "application/pdf",
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "gif": "image/gif",
-            "bmp": "image/bmp",
-            "tiff": "image/tiff",
-            "webp": "image/webp",
-        }
-        return mime_types.get(ext, "application/octet-stream")
 
     def process(self, file_path, custom_instructions: str = ""):
         print(f"🔍 Processing: {file_path}")
@@ -182,7 +138,14 @@ class SelfDescribingOCRAgent:
                 print(f"❌ Failed to read PDF file: {e}")
 
                 def error_generator(e):
-                    yield (1, {}, pd.DataFrame(), {}, None, f"Failed to read PDF: {e}")
+                    yield (
+                        1,
+                        {},
+                        pd.DataFrame(),
+                        {},
+                        None,
+                        f"Failed to read PDF: {e}",
+                    )
 
                 return error_generator(e), 1
 
@@ -194,7 +157,7 @@ class SelfDescribingOCRAgent:
         with open(file_path, "rb") as f:
             file_bytes = f.read()
 
-        mime_type = self._detect_mime_type(file_path)
+        mime_type = detect_mime_type(file_path)
 
         result = self.extract_data_single_pass(
             file_bytes, mime_type, custom_instructions
@@ -237,24 +200,13 @@ class SelfDescribingOCRAgent:
         else:
             print(f"⚠️ Page {page_num} sent as original PDF (MIME: {file_mime_type}).")
 
-        rotation_instruction = (
-            "**VISUAL ROTATION FAILSAFE:** The image rotation step may have failed. If this page's content "
-            "is visually rotated (e.g., 90 or 270 degrees), you **MUST** mentally rotate the image "
-            "to the correct, upright orientation (0 degrees) and extract the data based on that corrected view. "
-            "**DO NOT** output the data rotated or transposed."
-        )
-
-        page_instructions = (
-            f"Page {page_num} of {total_pages}. "
-            f"{rotation_instruction} "
-            f"{custom_instructions}"
-        )
+        page_instructions = f"Page {page_num} of {total_pages}. {custom_instructions}"
 
         result = self.extract_data_single_pass(
             corrected_bytes, file_mime_type, page_instructions
         )
 
-        confidence_score, issues = self._validate_extraction(result)
+        confidence_score, issues = validate_extraction(result)
 
         metadata = result.get("metadata", {})
         line_items_data = result.get("line_items", [])
@@ -298,6 +250,7 @@ class SelfDescribingOCRAgent:
                 page_num = futures[future]
                 try:
                     result = future.result()
+
                     results_buffer[page_num] = result
                 except Exception as e:
                     print(f"❌ Error processing page {page_num}: {e}")
@@ -326,44 +279,31 @@ class SelfDescribingOCRAgent:
             f"✅ Completed {total_pages} pages in {elapsed:.2f}s ({elapsed / total_pages:.2f}s per page)"
         )
 
-    def process_pdf_page_by_page(
-        self, file_path, custom_instructions="", auto_infer=True
-    ):
-        reader = PdfReader(file_path)
-        total_pages = len(reader.pages)
-        return self.process_pdf_parallel(reader, total_pages, custom_instructions)
+    def _construct_prompt(self, file_bytes, mime_type, custom_instructions):
+        file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
+        prompt = f'''You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
 
-    def _validate_extraction(self, result: Dict) -> Tuple[float, List[str]]:
-        issues = []
-        confidence_score = 1.0
+        ## Extraction Rules
+        ***
 
-        if not result.get("fields"):
-            issues.append("No fields extracted")
-            confidence_score -= 0.3
+        ### General Structural Rules
+        * **Target Table:** Only get the **middle table** from the document.
+        * **Context Exclusion:** Do not include other text outside of the main table or header tables in the response.
+        * **Headers:** Column names **must be exactly the same** as in the table.
+        * **Format Consistency:** Be consistent with the table format.
+        * **Quoting:** All cell values **must be quoted**.
 
-        if not result.get("line_items") and not result.get("metadata"):
-            issues.append("No data extracted (empty metadata and line_items)")
-            confidence_score -= 0.4
+        ### Data Formatting
+        * **Times:** Use **HH:MM** format for the Call time (e.g., 07:00). For In/Out times that include **AM/PM**.
 
-        if result.get("confidence") == "low":
-            confidence_score -= 0.2
-        elif result.get("confidence") == "medium":
-            confidence_score -= 0.1
+        {custom_instructions}
 
-        fields = result.get("fields", [])
-        field_names = {f.get("name") for f in fields}
-
-        line_items = result.get("line_items", [])
-        if line_items:
-            first_item_keys = set(line_items[0].keys())
-            if not field_names.issuperset(first_item_keys):
-                issues.append(
-                    f"Line item keys ({list(first_item_keys - field_names)[:2]}...) not fully defined in schema."
-                )
-
-        confidence_score = max(0.0, min(1.0, confidence_score))
-
-        if issues:
-            print(f"⚠️ Validation issues ({len(issues)}): {', '.join(issues[:3])}")
-
-        return confidence_score, issues
+        ## CRITICAL OUTPUT INSTRUCTIONS
+        * Your ENRE response **MUST be ONLY the CSV data**.
+        * **DO NOT** include markdown fences like ```csv or ```.
+        * **DO NOT** include any introductory text, summaries, or explanations.
+        * If you cannot find a table, you **MUST** still respond with a single header row as per the instructions above. Do not write "No table found."
+        * The very first character of your response should be the first character of the CSV header.
+        * The very last character of your response should be the last character of the last CSV row.
+        '''
+        return [file_part], prompt

@@ -1,9 +1,11 @@
 import os
+import tempfile
 
 import pandas as pd
 import streamlit as st
 
 from agent.ocr_agent import SelfDescribingOCRAgent
+from utils.data_processing import clean_and_process_dataframe
 from utils.file_converters import create_zip_archive
 
 st.title("Young & Restless OCR")
@@ -18,7 +20,6 @@ uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
 
 processing_successful = False
-date_to_display = None
 
 if uploaded_file is not None and api_key:
     file_key = f"file_{hash(uploaded_file.getvalue())}"
@@ -30,12 +31,12 @@ if uploaded_file is not None and api_key:
             "processed": False,
         }
 
-    temp_pdf_path = os.path.abspath("temp.pdf")
-    with open(temp_pdf_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-
     if not st.session_state.edited_tables[file_key]["processed"]:
         if st.button("Process Document"):
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(uploaded_file.getbuffer())
+                temp_pdf_path = tmp.name
+
             try:
                 agent = SelfDescribingOCRAgent(api_key=api_key)
                 results_generator, total_pages = agent.process(temp_pdf_path)
@@ -47,52 +48,24 @@ if uploaded_file is not None and api_key:
 
                 for i, (
                     page_num,
-                    _,
+                    metadata,
                     line_items,
                     _,
                     corrected_image_bytes,
                     raw_text,
                 ) in enumerate(results_generator):
-
-                    def clean_cell(value):
-                        if pd.isna(value) or value == "" or value is None:
-                            return ""
-                        return str(value).strip()
-
+                    if (
+                        i == 0
+                        and metadata
+                        and st.session_state.edited_tables[file_key].get("date") is None
+                    ):
+                        st.session_state.edited_tables[file_key]["date"] = metadata.get(
+                            "date"
+                        )
                     if not isinstance(line_items, pd.DataFrame):
                         line_items = pd.DataFrame()
 
-                    display_df = line_items.map(clean_cell)
-
-                    checkmark_values = [
-                        "Checked",
-                        "Checkmark",
-                        "V",
-                        "✓",
-                        "✔",
-                        "☑",
-                        "✅",
-                    ]
-                    for col in display_df.columns:
-                        display_df[col] = display_df[col].apply(
-                            lambda x: "" if x in checkmark_values else x
-                        )
-
-                    row_value_counts = (display_df != "").sum(axis=1)
-                    rows_to_fill = row_value_counts > 2
-
-                    for col in display_df.columns:
-                        non_empty_mask = display_df[col] != ""
-                        if non_empty_mask.any():
-                            filled_col = (
-                                display_df[col].replace("", pd.NA).ffill().fillna("")
-                            )
-                            display_df[col] = display_df[col].where(
-                                ~rows_to_fill, filled_col
-                            )
-
-                    display_df = display_df.loc[:, (display_df != "").any(axis=0)]
-                    display_df = display_df[(display_df != "").any(axis=1)]
+                    display_df = clean_and_process_dataframe(line_items)
 
                     st.session_state.edited_tables[file_key]["tables"].append(
                         {
@@ -114,8 +87,15 @@ if uploaded_file is not None and api_key:
             except Exception as e:
                 st.error(f"An error occurred during processing: {e}")
                 st.session_state.edited_tables[file_key]["processed"] = False
+            finally:
+                if "temp_pdf_path" in locals() and os.path.exists(temp_pdf_path):
+                    os.unlink(temp_pdf_path)
     else:
         try:
+            date_to_display = st.session_state.edited_tables[file_key].get("date")
+            if date_to_display:
+                st.subheader(f"Document Date: {date_to_display}")
+
             for table_data in st.session_state.edited_tables[file_key]["tables"]:
                 page_num = table_data["page_num"]
                 st.subheader(f"Page {page_num}")
@@ -124,7 +104,7 @@ if uploaded_file is not None and api_key:
                     st.image(
                         table_data["image"],
                         caption=f"Rotated Image for Page {table_data['page_num']}",
-                        width="stretch",
+                        use_column_width="auto",
                     )
 
                 if table_data.get("raw_text"):
