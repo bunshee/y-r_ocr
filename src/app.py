@@ -78,11 +78,17 @@ if uploaded_file is not None and api_key:
                             lambda x: "" if x in checkmark_values else x
                         )
 
+                    row_value_counts = (display_df != "").sum(axis=1)
+                    rows_to_fill = row_value_counts > 2
+
                     for col in display_df.columns:
                         non_empty_mask = display_df[col] != ""
                         if non_empty_mask.any():
-                            display_df[col] = (
+                            filled_col = (
                                 display_df[col].replace("", pd.NA).ffill().fillna("")
+                            )
+                            display_df[col] = display_df[col].where(
+                                ~rows_to_fill, filled_col
                             )
 
                     display_df = display_df.loc[:, (display_df != "").any(axis=0)]
