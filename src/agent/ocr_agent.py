@@ -23,7 +23,7 @@ class SelfDescribingOCRAgent:
     def __init__(
         self,
         api_key,
-        model_name="gemini-1.5-flash",
+        model_name="gemini-2.5-flash",
         max_workers=4,
         max_retries=3,
         temperature=0.0,
@@ -281,7 +281,7 @@ class SelfDescribingOCRAgent:
 
     def _construct_prompt(self, file_bytes, mime_type, custom_instructions):
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
-        prompt = f'''You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
+        prompt = f"""You are an expert document analyst specializing in **accurate, comprehensive table extraction** from complex documents, including timesheets and forms. Your primary goal is to identify and extract ALL tabular data from the provided raw OCR text.
 
         ## Extraction Rules
         ***
@@ -305,5 +305,5 @@ class SelfDescribingOCRAgent:
         * If you cannot find a table, you **MUST** still respond with a single header row as per the instructions above. Do not write "No table found."
         * The very first character of your response should be the first character of the CSV header.
         * The very last character of your response should be the last character of the last CSV row.
-        '''
+        """
         return [file_part], prompt
