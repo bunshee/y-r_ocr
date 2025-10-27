@@ -41,30 +41,33 @@ class SelfDescribingOCRAgent:
             )
             img = images[0]
 
-            osd_data = pytesseract.image_to_osd(img)
-            angle_match = re.search(r"(?<=Rotate: )\d+", osd_data)
-            angle_to_rotate = int(angle_match.group(0)) if angle_match else 0
+            try:
+                osd_data = pytesseract.image_to_osd(img)
+                angle_match = re.search(r"(?<=Rotate: )\d+", osd_data)
+                angle_to_rotate = int(angle_match.group(0)) if angle_match else 0
 
-            if angle_to_rotate != 0:
-                print(
-                    f"🔄 Detected visual rotation of {angle_to_rotate}° degrees. Correcting..."
-                )
-                rotated_img = img.rotate(
-                    -angle_to_rotate, expand=True, resample=Image.Resampling.BICUBIC
-                )
-            else:
-                rotated_img = img
-                print("✅ No visual rotation detected. Image is upright.")
+                if angle_to_rotate != 0:
+                    print(
+                        f"🔄 Detected visual rotation of {angle_to_rotate}° degrees. Correcting..."
+                    )
+                    img = img.rotate(
+                        -angle_to_rotate, expand=True, resample=Image.Resampling.BICUBIC
+                    )
+                else:
+                    print("✅ No visual rotation detected. Image is upright.")
+            except Exception as e:
+                print(f"⚠️ Rotation detection failed: {e}. Using image without rotation correction.")
 
+            # Always convert to PNG, even if rotation detection failed
             output = io.BytesIO()
-            rotated_img.save(output, format="PNG")
+            img.save(output, format="PNG")
             output.seek(0)
 
             return output.getvalue(), "image/png"
 
         except Exception as e:
             print(
-                f"❌ Image Rotation Correction Failed (Check Poppler/Tesseract dependencies): {e}. Falling back to original PDF bytes."
+                f"❌ Failed to convert PDF page to image: {e}. Falling back to original PDF bytes."
             )
             return pdf_page_bytes, "application/pdf"
 

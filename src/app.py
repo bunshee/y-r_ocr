@@ -106,9 +106,9 @@ if uploaded_file is not None and api_key:
                         st.image(
                             img,
                             caption=f"Page {table_data['page_num']}",
-                            use_container_width=True,
+                            width='stretch',
                         )
-                    except Exception as e:
+                    except Exception:
                         # If image display fails, show a message instead
                         st.info(f"📄 Page {table_data['page_num']} processed (image preview unavailable)")
 
