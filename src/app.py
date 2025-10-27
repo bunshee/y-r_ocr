@@ -88,11 +88,29 @@ if uploaded_file is not None and api_key:
                 st.subheader(f"Page {page_num}")
 
                 if table_data["image"]:
-                    st.image(
-                        table_data["image"],
-                        caption=f"Rotated Image for Page {table_data['page_num']}",
-                        width='stretch',
-                    )
+                    try:
+                        from PIL import Image
+                        import io
+                        
+                        # Handle BytesIO or bytes
+                        image_data = table_data["image"]
+                        if isinstance(image_data, bytes):
+                            image_data = io.BytesIO(image_data)
+                        
+                        # Reset pointer to beginning
+                        if hasattr(image_data, 'seek'):
+                            image_data.seek(0)
+                        
+                        # Try to open as image
+                        img = Image.open(image_data)
+                        st.image(
+                            img,
+                            caption=f"Page {table_data['page_num']}",
+                            use_container_width=True,
+                        )
+                    except Exception as e:
+                        # If image display fails, show a message instead
+                        st.info(f"📄 Page {table_data['page_num']} processed (image preview unavailable)")
 
                 if table_data.get("raw_text"):
                     with st.expander("View Raw Extracted Text"):
