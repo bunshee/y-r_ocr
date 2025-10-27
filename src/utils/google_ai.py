@@ -17,10 +17,10 @@ def send_prompt_with_retry(
     last_error = None
     for attempt in range(max_retries):
         try:
-            response = client.generate_content(
+            response = client.models.generate_content(
                 model=model_name,
                 contents=parts + [system_prompt],
-                generation_config=types.GenerationConfig(
+                config=types.GenerateContentConfig(
                     temperature=temperature,
                     response_mime_type=response_mime_type,
                     response_schema=types.Schema(**schema) if schema else None,
