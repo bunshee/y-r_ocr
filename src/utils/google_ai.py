@@ -29,12 +29,26 @@ def send_prompt_with_retry(
             return response.text.strip()
         except Exception as e:
             last_error = e
+            error_str = str(e)
+            
+            # Check for rate limit / quota exhausted error
+            is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+            
             if attempt < max_retries - 1:
-                wait_time = (2**attempt) + (time.time() % 1)
-                print(
-                    f"⚠️ API call failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time:.2f}s..."
-                )
-                time.sleep(wait_time)
+                if is_rate_limit:
+                    wait_time = 60
+                    print(f"⚠️ Rate limit exceeded (attempt {attempt + 1}/{max_retries}). Waiting 60 seconds...")
+                    # Countdown timer
+                    for remaining in range(wait_time, 0, -1):
+                        print(f"⏳ Retrying in {remaining} seconds...", end="\r")
+                        time.sleep(1)
+                    print("\n🔄 Resuming processing...")
+                else:
+                    wait_time = (2**attempt) + (time.time() % 1)
+                    print(
+                        f"⚠️ API call failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time:.2f}s..."
+                    )
+                    time.sleep(wait_time)
             else:
                 print(f"❌ API call failed after {max_retries} attempts: {e}")
     raise last_error

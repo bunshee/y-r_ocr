@@ -87,21 +87,11 @@ class SelfDescribingOCRAgent:
             cleaned_csv = re.sub(r"(?i)^```csv\n|```$", "", response_text).strip()
             df = pd.read_csv(io.StringIO(cleaned_csv))
 
-            date_prompt = "From the text, what is the date of the document? Respond with only the date and nothing else."
-            date_response = send_prompt_with_retry(
-                self.client,
-                self.model_name,
-                parts,
-                date_prompt,
-                self.max_retries,
-                response_mime_type="text/plain",
-            )
-
             result = {
                 "document_type": "timesheet",
                 "confidence": "high",
                 "fields": [{"name": col} for col in df.columns],
-                "metadata": {"date": date_response},
+                "metadata": {},
                 "line_items": df.to_dict(orient="records"),
                 "raw_text": response_text,
             }

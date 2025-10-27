@@ -27,7 +27,6 @@ if uploaded_file is not None and api_key:
     if file_key not in st.session_state.edited_tables:
         st.session_state.edited_tables[file_key] = {
             "tables": [],
-            "date": None,
             "processed": False,
         }
 
@@ -54,14 +53,6 @@ if uploaded_file is not None and api_key:
                     corrected_image_bytes,
                     raw_text,
                 ) in enumerate(results_generator):
-                    if (
-                        i == 0
-                        and metadata
-                        and st.session_state.edited_tables[file_key].get("date") is None
-                    ):
-                        st.session_state.edited_tables[file_key]["date"] = metadata.get(
-                            "date"
-                        )
                     if not isinstance(line_items, pd.DataFrame):
                         line_items = pd.DataFrame()
 
@@ -92,10 +83,6 @@ if uploaded_file is not None and api_key:
                     os.unlink(temp_pdf_path)
     else:
         try:
-            date_to_display = st.session_state.edited_tables[file_key].get("date")
-            if date_to_display:
-                st.subheader(f"Document Date: {date_to_display}")
-
             for table_data in st.session_state.edited_tables[file_key]["tables"]:
                 page_num = table_data["page_num"]
                 st.subheader(f"Page {page_num}")
@@ -141,7 +128,7 @@ if uploaded_file is not None and api_key:
 
                 if tables_with_pages:
                     zip_file_buffer = create_zip_archive(
-                        tables_with_pages, date_to_display
+                        tables_with_pages, None
                     )
                     st.download_button(
                         label="Download All Results (ZIP)",
